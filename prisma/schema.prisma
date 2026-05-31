@@ -1,0 +1,148 @@
+// K-Lipa data model. Money is stored as BigInt in minor units
+// (for RWF, which has no minor unit, store whole francs).
+// Balances are NOT stored — they are computed (see prisma/rls.sql, customer_balance view).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Organisation {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  category  String?
+  currency  String   @default("RWF") @db.Char(3)
+  logoUrl   String?  @map("logo_url")
+  plan      String   @default("starter") // starter | growth | business
+  createdAt DateTime @default(now()) @map("created_at")
+
+  memberships Membership[]
+  customers   Customer[]
+  invoices    Invoice[]
+
+  @@map("organisation")
+}
+
+model UserProfile {
+  // id equals the Supabase auth.users.id (the JWT `sub`).
+  id        String   @id @db.Uuid
+  fullName  String   @map("full_name")
+  email     String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  memberships Membership[]
+
+  @@map("user_profile")
+}
+
+// Records each acceptance of the Terms: who, when, which version, which language.
+// This is what makes consent defensible to regulators and lenders later.
+model ConsentRecord {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  termsVersion String   @map("terms_version")
+  language     String // en | rw | fr | sw
+  acceptedAt   DateTime @default(now()) @map("accepted_at")
+
+  @@index([userId])
+  @@map("consent_record")
+}
+
+model Membership {
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String       @map("organisation_id") @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  role           String       @default("owner") // owner | admin | member
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  user           UserProfile  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organisationId, userId])
+  @@map("membership")
+}
+
+model Customer {
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String       @map("organisation_id") @db.Uuid
+  name           String
+  email          String?
+  phone          String?
+  createdAt      DateTime     @default(now()) @map("created_at")
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  invoices       Invoice[]
+
+  @@index([organisationId])
+  @@map("customer")
+}
+
+model Invoice {
+  id             String        @id @default(uuid()) @db.Uuid
+  organisationId String        @map("organisation_id") @db.Uuid
+  customerId     String        @map("customer_id") @db.Uuid
+  number         String
+  amountTotal    BigInt        @map("amount_total")
+  currency       String        @db.Char(3)
+  dueDate        DateTime      @map("due_date") @db.Date
+  status         String        @default("draft") // draft|sent|due_soon|overdue|paid
+  description    String?
+  publicToken    String?       @unique @map("public_token")
+  pdfUrl         String?       @map("pdf_url")
+  sentAt         DateTime?     @map("sent_at")
+  paidAt         DateTime?     @map("paid_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  organisation Organisation  @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  customer     Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  items        InvoiceItem[]
+  reminders    Reminder[]
+  payments     Payment[]
+
+  @@unique([organisationId, number])
+  @@index([organisationId, status])
+  @@index([organisationId, dueDate])
+  @@map("invoice")
+}
+
+model InvoiceItem {
+  id          String @id @default(uuid()) @db.Uuid
+  invoiceId   String @map("invoice_id") @db.Uuid
+  description String
+  unitAmount  BigInt @map("unit_amount")
+  quantity    Int    @default(1)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("invoice_item")
+}
+
+model Reminder {
+  id           String    @id @default(uuid()) @db.Uuid
+  invoiceId    String    @map("invoice_id") @db.Uuid
+  stage        String // before_due | on_due | overdue_7 | overdue_14
+  channel      String    @default("email")
+  status       String    @default("scheduled") // scheduled|sent|skipped|failed
+  scheduledFor DateTime  @map("scheduled_for")
+  sentAt       DateTime? @map("sent_at")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduledFor])
+  @@map("reminder")
+}
+
+model Payment {
+  id        String   @id @default(uuid()) @db.Uuid
+  invoiceId String   @map("invoice_id") @db.Uuid
+  amount    BigInt
+  method    String   @default("manual") // manual | mobile_money | card
+  paidAt    DateTime @default(now()) @map("paid_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("payment")
+}
