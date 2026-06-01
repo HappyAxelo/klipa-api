@@ -8,14 +8,13 @@ export class OnboardingService {
   constructor(private readonly prisma: PrismaService) {}
 
   async complete(auth: AuthContext, dto: CreateOnboardingDto) {
-    // Idempotent: if the user already belongs to an org, just return it.
-    // This means onboarding can be called any number of times without error —
-    // the app never gets stuck on a 409.
+    // Idempotent: if the user already belongs to an org, they're done.
+    // Return straight from the auth context — no DB read here, because the
+    // organisation table is protected by row-level security that needs a
+    // tenant context this call doesn't have. Querying it would throw (500).
+    // The app only needs to know onboarding is complete, which this confirms.
     if (auth.organisationId) {
-      const existing = await this.prisma.organisation.findUnique({
-        where: { id: auth.organisationId },
-      });
-      if (existing) return existing;
+      return { id: auth.organisationId, alreadyOnboarded: true };
     }
 
     // First-time onboarding. Runs before any org exists, so it uses the base client.
