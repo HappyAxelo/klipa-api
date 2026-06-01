@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/database/prisma.service';
 import { AuthContext } from '../../common/auth/supabase.guard';
 import { CreateOnboardingDto } from './dto/create-onboarding.dto';
@@ -8,11 +8,17 @@ export class OnboardingService {
   constructor(private readonly prisma: PrismaService) {}
 
   async complete(auth: AuthContext, dto: CreateOnboardingDto) {
+    // Idempotent: if the user already belongs to an org, just return it.
+    // This means onboarding can be called any number of times without error —
+    // the app never gets stuck on a 409.
     if (auth.organisationId) {
-      throw new ConflictException('Already onboarded');
+      const existing = await this.prisma.organisation.findUnique({
+        where: { id: auth.organisationId },
+      });
+      if (existing) return existing;
     }
 
-    // Runs before any org exists, so this uses the base client (not withTenant).
+    // First-time onboarding. Runs before any org exists, so it uses the base client.
     return this.prisma.$transaction(async (tx) => {
       await tx.userProfile.upsert({
         where: { id: auth.userId },
@@ -33,7 +39,6 @@ export class OnboardingService {
         data: { organisationId: org.id, userId: auth.userId, role: 'owner' },
       });
 
-      // Store the consent the user gave on the Terms screen.
       await tx.consentRecord.create({
         data: {
           userId: auth.userId,
