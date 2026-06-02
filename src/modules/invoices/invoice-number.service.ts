@@ -6,24 +6,32 @@ export class InvoiceNumberService {
   /**
    * Produces INV-YYYY-NNNN, sequential per organisation per year.
    *
-   * MVP approach: take the highest existing number for the org this year and
-   * add one, inside the same transaction as the insert. Good enough at launch
-   * volume. If two invoices are created in the same millisecond you could get
-   * a collision, which the unique (organisation_id, number) constraint catches;
-   * harden later with a dedicated per-org counter row and SELECT ... FOR UPDATE.
+   * It finds the highest existing sequence for the org this year by scanning
+   * the actual numbers (parsed as integers, not string-sorted), then adds one
+   * plus an optional offset. The offset lets the caller retry on a unique-
+   * constraint collision: bump the offset and try again. This survives any
+   * out-of-sync state from earlier failed inserts.
    */
-  async next(tx: Prisma.TransactionClient, orgId: string): Promise<string> {
+  async next(
+    tx: Prisma.TransactionClient,
+    orgId: string,
+    offset = 0,
+  ): Promise<string> {
     const year = new Date().getFullYear();
     const prefix = `INV-${year}-`;
 
-    const last = await tx.invoice.findFirst({
+    const existing = await tx.invoice.findMany({
       where: { organisationId: orgId, number: { startsWith: prefix } },
-      orderBy: { number: 'desc' },
       select: { number: true },
     });
 
-    const lastSeq = last ? parseInt(last.number.slice(prefix.length), 10) : 0;
-    const next = (lastSeq + 1).toString().padStart(4, '0');
+    let maxSeq = 0;
+    for (const row of existing) {
+      const seq = parseInt(row.number.slice(prefix.length), 10);
+      if (!Number.isNaN(seq) && seq > maxSeq) maxSeq = seq;
+    }
+
+    const next = (maxSeq + 1 + offset).toString().padStart(4, '0');
     return `${prefix}${next}`;
   }
 }
