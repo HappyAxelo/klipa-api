@@ -52,53 +52,70 @@ export class InvoicesService {
   }
 
   async create(orgId: string, dto: CreateInvoiceDto) {
-    const result = await this.prisma.withTenant(orgId, async (tx) => {
-      // Read the org inside the tenant context — RLS requires app.current_org
-      // to be set, which withTenant does. Reading it outside would be blocked.
-      const org = await tx.organisation.findUnique({ where: { id: orgId } });
-      if (!org) throw new NotFoundException('Organisation not found');
+    const send = dto.send ?? false;
 
-      const customer = await this.customers.findOrCreate(tx, orgId, dto.customer);
-      const number = await this.numbers.next(tx, orgId);
-      const send = dto.send ?? false;
+    // Retry on a duplicate invoice-number collision. Earlier failed attempts
+    // can leave numbering out of sync; bumping the offset and retrying makes
+    // the save reliable instead of erroring on a taken number.
+    const MAX_TRIES = 5;
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < MAX_TRIES; attempt++) {
+      try {
+        const result = await this.prisma.withTenant(orgId, async (tx) => {
+          // Read the org inside the tenant context — RLS requires app.current_org
+          // to be set, which withTenant does. Reading it outside would be blocked.
+          const org = await tx.organisation.findUnique({ where: { id: orgId } });
+          if (!org) throw new NotFoundException('Organisation not found');
 
-      const invoice = await tx.invoice.create({
-        data: {
-          organisationId: orgId,
-          customerId: customer.id,
-          number,
-          amountTotal: BigInt(dto.amount),
-          currency: org.currency,
-          dueDate: new Date(dto.dueDate),
-          description: dto.description ?? null,
-          status: send ? 'sent' : 'draft',
-          publicToken: send ? nanoid(24) : null,
-          sentAt: send ? new Date() : null,
-        },
-        include: { customer: true },
-      });
+          const customer = await this.customers.findOrCreate(tx, orgId, dto.customer);
+          const number = await this.numbers.next(tx, orgId, attempt);
 
-      if (send) {
-        await this.scheduleReminders(tx, invoice.id, invoice.dueDate);
+          const invoice = await tx.invoice.create({
+            data: {
+              organisationId: orgId,
+              customerId: customer.id,
+              number,
+              amountTotal: BigInt(dto.amount),
+              currency: org.currency,
+              dueDate: new Date(dto.dueDate),
+              description: dto.description ?? null,
+              status: send ? 'sent' : 'draft',
+              publicToken: send ? nanoid(24) : null,
+              sentAt: send ? new Date() : null,
+            },
+            include: { customer: true },
+          });
+
+          if (send) {
+            await this.scheduleReminders(tx, invoice.id, invoice.dueDate);
+          }
+          return { invoice, orgName: org.name };
+        });
+
+        // Email is sent outside the DB transaction so a slow provider never
+        // holds a database lock. In production this becomes a queued job.
+        if (result.invoice.status === 'sent' && result.invoice.customer.email) {
+          await this.sendInvoiceEmail(result.orgName, result.invoice);
+        }
+        return this.decorate(result.orgName, result.invoice);
+      } catch (e) {
+        // P2002 = unique constraint violation (duplicate invoice number). Retry
+        // with a higher number. Any other error is real — rethrow it.
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+          lastErr = e;
+          continue;
+        }
+        throw e;
       }
-      return { invoice, orgName: org.name };
-    });
-
-    // Email is sent outside the DB transaction so a slow provider never holds
-    // a database lock. In production this becomes a queued job.
-    if (result.invoice.status === 'sent' && result.invoice.customer.email) {
-      await this.sendInvoiceEmail(result.orgName, result.invoice);
     }
-
-    return this.decorate(result.orgName, result.invoice);
+    throw lastErr;
   }
 
   async send(orgId: string, id: string) {
-    const org = await this.prisma.organisation.findUniqueOrThrow({
-      where: { id: orgId },
-    });
-
-    const invoice = await this.prisma.withTenant(orgId, async (tx) => {
+    const result = await this.prisma.withTenant(orgId, async (tx) => {
+      const org = await tx.organisation.findUniqueOrThrow({
+        where: { id: orgId },
+      });
       const existing = await tx.invoice.findUnique({
         where: { id },
         include: { customer: true },
@@ -122,13 +139,13 @@ export class InvoicesService {
       if (!hasReminders) {
         await this.scheduleReminders(tx, id, updated.dueDate);
       }
-      return updated;
+      return { updated, orgName: org.name };
     });
 
-    if (invoice.customer.email) {
-      await this.sendInvoiceEmail(org.name, invoice);
+    if (result.updated.customer.email) {
+      await this.sendInvoiceEmail(result.orgName, result.updated);
     }
-    return this.decorate(org.name, invoice);
+    return this.decorate(result.orgName, result.updated);
   }
 
   async markPaid(orgId: string, id: string) {
