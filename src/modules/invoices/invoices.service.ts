@@ -52,12 +52,12 @@ export class InvoicesService {
   }
 
   async create(orgId: string, dto: CreateInvoiceDto) {
-    const org = await this.prisma.organisation.findUnique({
-      where: { id: orgId },
-    });
-    if (!org) throw new NotFoundException('Organisation not found');
-
     const result = await this.prisma.withTenant(orgId, async (tx) => {
+      // Read the org inside the tenant context — RLS requires app.current_org
+      // to be set, which withTenant does. Reading it outside would be blocked.
+      const org = await tx.organisation.findUnique({ where: { id: orgId } });
+      if (!org) throw new NotFoundException('Organisation not found');
+
       const customer = await this.customers.findOrCreate(tx, orgId, dto.customer);
       const number = await this.numbers.next(tx, orgId);
       const send = dto.send ?? false;
@@ -81,16 +81,16 @@ export class InvoicesService {
       if (send) {
         await this.scheduleReminders(tx, invoice.id, invoice.dueDate);
       }
-      return invoice;
+      return { invoice, orgName: org.name };
     });
 
     // Email is sent outside the DB transaction so a slow provider never holds
     // a database lock. In production this becomes a queued job.
-    if (result.status === 'sent' && result.customer.email) {
-      await this.sendInvoiceEmail(org.name, result);
+    if (result.invoice.status === 'sent' && result.invoice.customer.email) {
+      await this.sendInvoiceEmail(result.orgName, result.invoice);
     }
 
-    return this.decorate(org.name, result);
+    return this.decorate(result.orgName, result.invoice);
   }
 
   async send(orgId: string, id: string) {
