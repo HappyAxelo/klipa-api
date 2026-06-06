@@ -26,4 +26,4 @@ COPY --from=build /app/prisma ./prisma
 
 EXPOSE 4000
 # Apply any pending migrations on boot, then start.
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+CMD ["node", "dist/main.js"]
