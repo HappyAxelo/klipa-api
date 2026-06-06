@@ -54,42 +54,63 @@ export class InvoicesService {
   async create(orgId: string, dto: CreateInvoiceDto) {
     const send = dto.send ?? false;
 
-    // Retry on a duplicate invoice-number collision. Earlier failed attempts
-    // can leave numbering out of sync; bumping the offset and retrying makes
-    // the save reliable instead of erroring on a taken number.
+    // Retry on duplicate invoice-number collision. Earlier failed attempts can
+    // leave the sequence out of sync; bumping the offset and retrying makes the
+    // save reliable rather than erroring on a taken number.
     const MAX_TRIES = 5;
     let lastErr: unknown;
     for (let attempt = 0; attempt < MAX_TRIES; attempt++) {
       try {
         const result = await this.prisma.withTenant(orgId, async (tx) => {
-          // Read the org inside the tenant context — RLS requires app.current_org
-          // to be set, which withTenant does. Reading it outside would be blocked.
+          // Read the org INSIDE the tenant context — RLS requires app.current_org
+          // to be set, which withTenant does. Reading outside is blocked.
           const org = await tx.organisation.findUnique({ where: { id: orgId } });
           if (!org) throw new NotFoundException('Organisation not found');
 
           const customer = await this.customers.findOrCreate(tx, orgId, dto.customer);
           const number = await this.numbers.next(tx, orgId, attempt);
 
+          // Compute total server-side from items — never trust client-supplied total.
+          const amountTotal = dto.items.reduce(
+            (sum, item) => sum + BigInt(item.unitAmount) * BigInt(item.quantity),
+            0n,
+          );
+
           const invoice = await tx.invoice.create({
             data: {
               organisationId: orgId,
               customerId: customer.id,
               number,
-              amountTotal: BigInt(dto.amount),
+              amountTotal,
               currency: org.currency,
               dueDate: new Date(dto.dueDate),
-              description: dto.description ?? null,
               status: send ? 'sent' : 'draft',
               publicToken: send ? nanoid(24) : null,
               sentAt: send ? new Date() : null,
             },
-            include: { customer: true },
+          });
+
+          // Write line items
+          await tx.invoiceItem.createMany({
+            data: dto.items.map((item) => ({
+              invoiceId: invoice.id,
+              description: item.description,
+              quantity: item.quantity,
+              unitAmount: BigInt(item.unitAmount),
+            })),
           });
 
           if (send) {
-            await this.scheduleReminders(tx, invoice.id, invoice.dueDate);
+            await this.scheduleReminders(tx, invoice.id, new Date(dto.dueDate));
           }
-          return { invoice, orgName: org.name };
+
+          // Re-fetch with items and customer for the response
+          const full = await tx.invoice.findUnique({
+            where: { id: invoice.id },
+            include: { customer: true, items: true },
+          });
+
+          return { invoice: full!, orgName: org.name };
         });
 
         // Email is sent outside the DB transaction so a slow provider never
@@ -100,7 +121,7 @@ export class InvoicesService {
         return this.decorate(result.orgName, result.invoice);
       } catch (e) {
         // P2002 = unique constraint violation (duplicate invoice number). Retry
-        // with a higher number. Any other error is real — rethrow it.
+        // with a higher offset. Any other error is real — rethrow immediately.
         if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
           lastErr = e;
           continue;
@@ -113,9 +134,8 @@ export class InvoicesService {
 
   async send(orgId: string, id: string) {
     const result = await this.prisma.withTenant(orgId, async (tx) => {
-      const org = await tx.organisation.findUniqueOrThrow({
-        where: { id: orgId },
-      });
+      // Read org inside withTenant — required by RLS
+      const org = await tx.organisation.findUniqueOrThrow({ where: { id: orgId } });
       const existing = await tx.invoice.findUnique({
         where: { id },
         include: { customer: true },
@@ -157,7 +177,6 @@ export class InvoicesService {
       await tx.payment.create({
         data: { invoiceId: id, amount: invoice.amountTotal, method: 'manual' },
       });
-      // Future Mobile Money writes to the same payment table — no change here.
       await tx.reminder.updateMany({
         where: { invoiceId: id, status: 'scheduled' },
         data: { status: 'skipped' },
@@ -169,8 +188,6 @@ export class InvoicesService {
     });
   }
 
-  // Record a payment of any amount (supports partial / instalment payments).
-  // The invoice flips to 'paid' only once the total received reaches the amount.
   async recordPayment(orgId: string, id: string, amount: number) {
     if (!Number.isInteger(amount) || amount <= 0) {
       throw new BadRequestException('Amount must be a positive whole number');
@@ -184,7 +201,7 @@ export class InvoicesService {
 
       const already = invoice.payments.reduce((s, p) => s + p.amount, 0n);
       const remaining = invoice.amountTotal - already;
-      if (remaining <= 0n) return invoice; // already settled
+      if (remaining <= 0n) return invoice;
       if (BigInt(amount) > remaining) {
         throw new BadRequestException('Amount exceeds the outstanding balance');
       }
@@ -250,6 +267,11 @@ export class InvoicesService {
     return {
       ...invoice,
       amountTotal: invoice.amountTotal.toString(),
+      // Serialize BigInt fields inside items so JSON.stringify doesn't throw
+      items: (invoice.items || []).map((item: any) => ({
+        ...item,
+        unitAmount: item.unitAmount.toString(),
+      })),
       public_link: link,
       whatsapp_share_text: link
         ? this.whatsappText(businessName, invoice, invoice.customer.name, link)
