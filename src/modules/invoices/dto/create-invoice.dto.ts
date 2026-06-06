@@ -1,50 +1,61 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsDateString,
-  IsEmail,
   IsInt,
   IsOptional,
   IsString,
-  MaxLength,
   Min,
+  MinLength,
   ValidateNested,
 } from 'class-validator';
 
-export class InlineCustomerDto {
+export class CreateCustomerDto {
   @IsString()
-  @MaxLength(160)
+  @MinLength(1)
   name: string;
 
   @IsOptional()
-  @IsEmail()
+  @IsString()
   email?: string;
 
   @IsOptional()
   @IsString()
-  @MaxLength(40)
   phone?: string;
+}
+
+export class CreateItemDto {
+  @IsString()
+  @MinLength(1)
+  description: string;
+
+  @IsInt()
+  @Min(1)
+  quantity: number;
+
+  // Stored as BigInt in DB. Client sends an integer (whole RWF, no decimals).
+  @IsInt()
+  @Min(0)
+  unitAmount: number;
 }
 
 export class CreateInvoiceDto {
   @ValidateNested()
-  @Type(() => InlineCustomerDto)
-  customer: InlineCustomerDto;
+  @Type(() => CreateCustomerDto)
+  customer: CreateCustomerDto;
 
-  // Whole RWF (minor units). Positive integer.
-  @IsInt()
-  @Min(1)
-  amount: number;
+  // At least one line item required. Total is computed server-side.
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => CreateItemDto)
+  items: CreateItemDto[];
 
   @IsDateString()
-  dueDate: string; // YYYY-MM-DD
+  dueDate: string;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  description?: string;
-
-  // true sends immediately; false saves a draft.
   @IsOptional()
   @IsBoolean()
   send?: boolean;
