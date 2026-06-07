@@ -14,26 +14,18 @@ export class OnboardingService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      // Pre-generate org UUID so it matches app.current_org
-      // required by the RLS policy during insert.
+      // The organisation table now has RLS requiring id = app_current_org()
+      // on every row, including inserts (a bare `using` clause doubles as
+      // the `with check`). We're creating the org itself here, so no tenant
+      // context exists yet — pre-generate the id and set it as the tenant
+      // context FIRST, so the insert satisfies its own policy.
       const orgId = randomUUID();
-
-      // Set tenant context inside the transaction
-      await tx.$executeRaw`
-        select set_config('app.current_org', ${orgId}, true)
-      `;
+      await tx.$executeRaw`select set_config('app.current_org', ${orgId}, true)`;
 
       await tx.userProfile.upsert({
         where: { id: auth.userId },
-        update: {
-          fullName: dto.fullName,
-          email: auth.email,
-        },
-        create: {
-          id: auth.userId,
-          fullName: dto.fullName,
-          email: auth.email,
-        },
+        update: { fullName: dto.fullName, email: auth.email },
+        create: { id: auth.userId, fullName: dto.fullName, email: auth.email },
       });
 
       const org = await tx.organisation.create({
@@ -47,11 +39,7 @@ export class OnboardingService {
       });
 
       await tx.membership.create({
-        data: {
-          organisationId: org.id,
-          userId: auth.userId,
-          role: 'owner',
-        },
+        data: { organisationId: org.id, userId: auth.userId, role: 'owner' },
       });
 
       await tx.consentRecord.create({
@@ -63,25 +51,6 @@ export class OnboardingService {
       });
 
       return org;
-    });
-  }
-
-  async getOrgProfile(orgId: string, userId: string) {
-    return this.prisma.withTenant(orgId, async (tx) => {
-      const org = await tx.organisation.findUnique({
-        where: { id: orgId },
-      });
-
-      const profile = await tx.userProfile.findUnique({
-        where: { id: userId },
-      });
-
-      return {
-        name: org?.name ?? '',
-        category: org?.category ?? '',
-        currency: org?.currency ?? 'RWF',
-        owner: profile?.fullName ?? '',
-      };
     });
   }
 }
