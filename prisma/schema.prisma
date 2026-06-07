@@ -70,6 +70,7 @@ model Customer {
   name           String
   email          String?
   phone          String?
+  tin            String?
   createdAt      DateTime     @default(now()) @map("created_at")
   organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   invoices       Invoice[]
