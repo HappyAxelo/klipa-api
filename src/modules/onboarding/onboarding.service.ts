@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../common/database/prisma.service';
 import { AuthContext } from '../../common/auth/supabase.guard';
 import { CreateOnboardingDto } from './dto/create-onboarding.dto';
@@ -8,25 +9,36 @@ export class OnboardingService {
   constructor(private readonly prisma: PrismaService) {}
 
   async complete(auth: AuthContext, dto: CreateOnboardingDto) {
-    // Idempotent: if the user already belongs to an org, they're done.
-    // Return straight from the auth context — no DB read here, because the
-    // organisation table is protected by row-level security that needs a
-    // tenant context this call doesn't have. Querying it would throw (500).
-    // The app only needs to know onboarding is complete, which this confirms.
     if (auth.organisationId) {
       return { id: auth.organisationId, alreadyOnboarded: true };
     }
 
-    // First-time onboarding. Runs before any org exists, so it uses the base client.
     return this.prisma.$transaction(async (tx) => {
+      // Pre-generate org UUID so it matches app.current_org
+      // required by the RLS policy during insert.
+      const orgId = randomUUID();
+
+      // Set tenant context inside the transaction
+      await tx.$executeRaw`
+        select set_config('app.current_org', ${orgId}, true)
+      `;
+
       await tx.userProfile.upsert({
         where: { id: auth.userId },
-        update: { fullName: dto.fullName, email: auth.email },
-        create: { id: auth.userId, fullName: dto.fullName, email: auth.email },
+        update: {
+          fullName: dto.fullName,
+          email: auth.email,
+        },
+        create: {
+          id: auth.userId,
+          fullName: dto.fullName,
+          email: auth.email,
+        },
       });
 
       const org = await tx.organisation.create({
         data: {
+          id: orgId,
           name: dto.businessName,
           category: dto.category,
           currency: dto.currency.toUpperCase(),
@@ -35,7 +47,11 @@ export class OnboardingService {
       });
 
       await tx.membership.create({
-        data: { organisationId: org.id, userId: auth.userId, role: 'owner' },
+        data: {
+          organisationId: org.id,
+          userId: auth.userId,
+          role: 'owner',
+        },
       });
 
       await tx.consentRecord.create({
@@ -52,8 +68,13 @@ export class OnboardingService {
 
   async getOrgProfile(orgId: string, userId: string) {
     return this.prisma.withTenant(orgId, async (tx) => {
-      const org = await tx.organisation.findUnique({ where: { id: orgId } });
-      const profile = await tx.userProfile.findUnique({ where: { id: userId } });
+      const org = await tx.organisation.findUnique({
+        where: { id: orgId },
+      });
+
+      const profile = await tx.userProfile.findUnique({
+        where: { id: userId },
+      });
 
       return {
         name: org?.name ?? '',
