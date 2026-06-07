@@ -20,13 +20,22 @@ export class OnboardingController {
   }
 
   @Get('me')
-  me(@CurrentUser() auth: AuthContext) {
-    return {
+  async me(@CurrentUser() auth: AuthContext) {
+    const base = {
       userId: auth.userId,
       email: auth.email,
       organisationId: auth.organisationId,
       role: auth.role,
       onboarded: Boolean(auth.organisationId),
     };
+
+    if (!auth.organisationId) return base;
+
+    const profile = await this.onboarding.getOrgProfile(
+      auth.organisationId,
+      auth.userId,
+    );
+
+    return { ...base, ...profile };
   }
 }
