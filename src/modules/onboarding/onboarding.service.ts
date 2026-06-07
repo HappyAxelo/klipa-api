@@ -49,4 +49,18 @@ export class OnboardingService {
       return org;
     });
   }
+
+  async getOrgProfile(orgId: string, userId: string) {
+    return this.prisma.withTenant(orgId, async (tx) => {
+      const org = await tx.organisation.findUnique({ where: { id: orgId } });
+      const profile = await tx.userProfile.findUnique({ where: { id: userId } });
+
+      return {
+        name: org?.name ?? '',
+        category: org?.category ?? '',
+        currency: org?.currency ?? 'RWF',
+        owner: profile?.fullName ?? '',
+      };
+    });
+  }
 }
