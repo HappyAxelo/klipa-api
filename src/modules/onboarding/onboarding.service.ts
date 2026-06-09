@@ -23,6 +23,18 @@ export class OnboardingService {
         select set_config('app.current_org', ${orgId}, true)
       `;
 
+      // Handle email conflict: if a stale profile exists under a different
+      // auth ID but same email (from a previous failed attempt), remove it first.
+      const staleProfile = await tx.userProfile.findUnique({
+        where: { email: auth.email },
+      });
+
+      if (staleProfile && staleProfile.id !== auth.userId) {
+        await tx.userProfile.delete({
+          where: { id: staleProfile.id },
+        });
+      }
+
       await tx.userProfile.upsert({
         where: { id: auth.userId },
         update: {
