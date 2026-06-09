@@ -225,6 +225,35 @@ export class InvoicesService {
     });
   }
 
+  // Public invoice — no auth required. Uses a two-step approach:
+  // 1. Raw SQL to get the org ID from the public token (bypasses tenant RLS)
+  // 2. withTenant to fetch the full invoice safely inside the correct RLS context
+  async getByPublicToken(token: string) {
+    const rows = await this.prisma.$queryRaw<{ organisation_id: string }[]>`
+      SELECT organisation_id FROM invoice WHERE public_token = ${token} LIMIT 1
+    `;
+    if (!rows.length) throw new NotFoundException('Invoice not found');
+    const orgId = rows[0].organisation_id;
+
+    return this.prisma.withTenant(orgId, async (tx) => {
+      const invoice = await tx.invoice.findFirst({
+        where: { publicToken: token },
+        include: { customer: true, items: true },
+      });
+      if (!invoice) throw new NotFoundException('Invoice not found');
+      const org = await tx.organisation.findUnique({ where: { id: orgId } });
+      return {
+        ...invoice,
+        amountTotal: invoice.amountTotal.toString(),
+        items: (invoice.items || []).map((item: any) => ({
+          ...item,
+          unitAmount: item.unitAmount.toString(),
+        })),
+        orgName: org?.name ?? '',
+      };
+    });
+  }
+
   // --- helpers ---
 
   private scheduleReminders(
