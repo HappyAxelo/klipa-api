@@ -14,6 +14,17 @@ import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { RecordPaymentDto } from './dto/record-payment.dto';
 import { jsonSafe } from '../../common/money/money';
 
+// Public routes — no auth guard
+@Controller('v1/invoices')
+export class InvoicesPublicController {
+  constructor(private readonly invoices: InvoicesService) {}
+
+  @Get('public/:token')
+  async getPublicInvoice(@Param('token') token: string) {
+    return jsonSafe(await this.invoices.getByPublicToken(token));
+  }
+}
+
 @Controller('v1/invoices')
 @UseGuards(SupabaseAuthGuard)
 export class InvoicesController {
@@ -44,7 +55,6 @@ export class InvoicesController {
     return jsonSafe(await this.invoices.markPaid(orgId, id));
   }
 
-  // Record a payment of any amount (partial or full).
   @Post(':id/payments')
   async recordPayment(
     @CurrentOrg() orgId: string,
