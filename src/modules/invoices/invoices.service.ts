@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -22,6 +23,8 @@ const REMINDER_STAGES: { stage: string; offsetDays: number }[] = [
 
 @Injectable()
 export class InvoicesService {
+  private readonly logger = new Logger(InvoicesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly customers: CustomersService,
@@ -313,17 +316,28 @@ export class InvoicesService {
   private async sendInvoiceEmail(businessName: string, invoice: any) {
     const link = this.publicLink(invoice.publicToken);
     const amount = formatMoney(invoice.amountTotal, invoice.currency);
-    await this.email.send({
-      to: invoice.customer.email,
-      subject: `Invoice ${invoice.number} from ${businessName}`,
-      html: `
+    // Best-effort: the invoice is already saved. A misconfigured or failing
+    // email provider must never turn a successful invoice into a 500 — log it
+    // and move on so the user keeps their record and can resend later.
+    try {
+      await this.email.send({
+        to: invoice.customer.email,
+        subject: `Invoice ${invoice.number} from ${businessName}`,
+        html: `
         <p>Hi ${invoice.customer.name},</p>
         <p>${businessName} has sent you invoice <strong>${invoice.number}</strong>
         for <strong>${amount}</strong>, due ${invoice.dueDate
-        .toISOString()
-        .slice(0, 10)}.</p>
+          .toISOString()
+          .slice(0, 10)}.</p>
         <p><a href="${link}">View your invoice</a></p>
       `,
-    });
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Invoice ${invoice.number} saved but email to ${invoice.customer.email} failed: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+    }
   }
 }
