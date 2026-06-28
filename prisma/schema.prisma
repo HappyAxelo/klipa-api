@@ -57,6 +57,7 @@ model Membership {
   organisationId String       @map("organisation_id") @db.Uuid
   userId         String       @map("user_id") @db.Uuid
   role           String       @default("owner") // owner | admin | member
+  createdAt      DateTime     @default(now()) @map("created_at")
   organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   user           UserProfile  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
