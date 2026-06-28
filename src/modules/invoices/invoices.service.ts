@@ -33,7 +33,9 @@ export class InvoicesService {
   list(orgId: string, status?: string) {
     return this.prisma.withTenant(orgId, (tx) =>
       tx.invoice.findMany({
-        where: status ? { status } : undefined,
+        // Scope to the org explicitly — never rely on RLS alone, since the API's
+        // DB role may bypass it. status is an optional extra filter.
+        where: { organisationId: orgId, ...(status ? { status } : {}) },
         include: { customer: true },
         orderBy: { createdAt: 'desc' },
       }),
@@ -42,8 +44,8 @@ export class InvoicesService {
 
   get(orgId: string, id: string) {
     return this.prisma.withTenant(orgId, async (tx) => {
-      const invoice = await tx.invoice.findUnique({
-        where: { id },
+      const invoice = await tx.invoice.findFirst({
+        where: { id, organisationId: orgId },
         include: { customer: true, items: true, payments: true, reminders: true },
       });
       if (!invoice) throw new NotFoundException('Invoice not found');
@@ -136,8 +138,8 @@ export class InvoicesService {
     const result = await this.prisma.withTenant(orgId, async (tx) => {
       // Read org inside withTenant — required by RLS
       const org = await tx.organisation.findUniqueOrThrow({ where: { id: orgId } });
-      const existing = await tx.invoice.findUnique({
-        where: { id },
+      const existing = await tx.invoice.findFirst({
+        where: { id, organisationId: orgId },
         include: { customer: true },
       });
       if (!existing) throw new NotFoundException('Invoice not found');
@@ -170,7 +172,7 @@ export class InvoicesService {
 
   async markPaid(orgId: string, id: string) {
     return this.prisma.withTenant(orgId, async (tx) => {
-      const invoice = await tx.invoice.findUnique({ where: { id } });
+      const invoice = await tx.invoice.findFirst({ where: { id, organisationId: orgId } });
       if (!invoice) throw new NotFoundException('Invoice not found');
       if (invoice.status === 'paid') return invoice;
 
@@ -193,8 +195,8 @@ export class InvoicesService {
       throw new BadRequestException('Amount must be a positive whole number');
     }
     return this.prisma.withTenant(orgId, async (tx) => {
-      const invoice = await tx.invoice.findUnique({
-        where: { id },
+      const invoice = await tx.invoice.findFirst({
+        where: { id, organisationId: orgId },
         include: { payments: true },
       });
       if (!invoice) throw new NotFoundException('Invoice not found');

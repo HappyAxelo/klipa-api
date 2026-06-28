@@ -10,9 +10,11 @@ export class CustomersService {
   list(orgId: string, search?: string) {
     return this.prisma.withTenant(orgId, (tx) =>
       tx.customer.findMany({
-        where: search
-          ? { name: { contains: search, mode: 'insensitive' } }
-          : undefined,
+        // Scope to the org explicitly — never rely on RLS alone.
+        where: {
+          organisationId: orgId,
+          ...(search ? { name: { contains: search, mode: 'insensitive' } } : {}),
+        },
         orderBy: { createdAt: 'desc' },
       }),
     );
@@ -37,7 +39,7 @@ export class CustomersService {
   ) {
     if (data.email) {
       const existing = await tx.customer.findFirst({
-        where: { email: data.email },
+        where: { organisationId: orgId, email: data.email },
       });
       if (existing) return existing;
     }
@@ -53,8 +55,8 @@ export class CustomersService {
 
   async profile(orgId: string, customerId: string) {
     return this.prisma.withTenant(orgId, async (tx) => {
-      const customer = await tx.customer.findUnique({
-        where: { id: customerId },
+      const customer = await tx.customer.findFirst({
+        where: { id: customerId, organisationId: orgId },
         include: {
           invoices: { orderBy: { createdAt: 'desc' } },
         },
