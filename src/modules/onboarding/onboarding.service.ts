@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../common/database/prisma.service';
@@ -23,6 +23,20 @@ export class OnboardingService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      // Serialise onboarding per user so two concurrent calls (double-submit /
+      // retry) can't both create an org. The lock is released at commit.
+      await tx.$executeRaw`select pg_advisory_xact_lock(hashtext(${auth.userId}))`;
+
+      // Idempotent: if this user already has an org, return it instead of
+      // creating a duplicate.
+      const existing = await tx.membership.findFirst({
+        where: { userId: auth.userId },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (existing) {
+        return tx.organisation.findUnique({ where: { id: existing.organisationId } });
+      }
+
       // Pre-generate org UUID so it matches app.current_org
       // required by the RLS policy during insert.
       const orgId = randomUUID();
@@ -129,6 +143,48 @@ export class OnboardingService {
       });
       return { momoCode: org.momoCode, bankAccount: org.bankAccount };
     });
+  }
+
+  // Admin: resolve an organisation by id, exact business name, or owner email.
+  async resolveOrganisation(q: {
+    organisationId?: string;
+    businessName?: string;
+    email?: string;
+  }): Promise<{ id: string; name: string }> {
+    if (q.organisationId) {
+      const org = await this.prisma.organisation.findUnique({
+        where: { id: q.organisationId },
+        select: { id: true, name: true },
+      });
+      if (!org) throw new NotFoundException('No business with that organisationId');
+      return org;
+    }
+    if (q.email) {
+      const rows = await this.prisma.$queryRaw<{ id: string; name: string }[]>`
+        select o.id::text as id, o.name as name
+        from membership m
+        join user_profile up on up.id = m.user_id
+        join organisation o on o.id = m.organisation_id
+        where lower(up.email) = lower(${q.email})
+        order by m.created_at asc limit 1`;
+      if (!rows.length) throw new NotFoundException('No business found for that email');
+      return rows[0];
+    }
+    if (q.businessName) {
+      const rows = await this.prisma.$queryRaw<{ id: string; name: string }[]>`
+        select id::text as id, name from organisation
+        where lower(name) = lower(${q.businessName}) order by created_at asc`;
+      if (!rows.length) throw new NotFoundException('No business with that name');
+      if (rows.length > 1) {
+        throw new BadRequestException(
+          `Multiple businesses named "${q.businessName}". Use organisationId. Candidates: ${rows
+            .map((r) => r.id)
+            .join(', ')}`,
+        );
+      }
+      return rows[0];
+    }
+    throw new BadRequestException('Provide organisationId, businessName, or email');
   }
 
   // Admin: grant/extend a subscription after a manual bank-transfer payment.

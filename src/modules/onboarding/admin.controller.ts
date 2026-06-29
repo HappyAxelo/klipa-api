@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Headers,
@@ -11,7 +10,9 @@ import { OnboardingService } from './onboarding.service';
 import { jsonSafe } from '../../common/money/money';
 
 interface ActivateBody {
-  organisationId: string;
+  organisationId?: string;
+  businessName?: string;
+  email?: string;
   months?: number;
 }
 
@@ -34,13 +35,14 @@ export class AdminController {
     if (!expected || token !== expected) {
       throw new UnauthorizedException('Invalid admin token');
     }
-    if (!body?.organisationId) {
-      throw new BadRequestException('organisationId is required');
-    }
-    const months =
-      body.months && body.months > 0 ? Math.floor(body.months) : 1;
-    return jsonSafe(
-      await this.onboarding.activateSubscription(body.organisationId, months),
-    );
+    // Resolve the business by id, exact name, or owner email.
+    const org = await this.onboarding.resolveOrganisation({
+      organisationId: body?.organisationId,
+      businessName: body?.businessName,
+      email: body?.email,
+    });
+    const months = body.months && body.months > 0 ? Math.floor(body.months) : 1;
+    const result = await this.onboarding.activateSubscription(org.id, months);
+    return jsonSafe({ business: org.name, ...result });
   }
 }
