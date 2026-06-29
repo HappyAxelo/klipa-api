@@ -20,8 +20,23 @@ export class RemindersService {
     private readonly config: ConfigService,
   ) {}
 
+  // Keep invoice status accurate without anyone touching it: unpaid invoices
+  // become "overdue" once past due, and "due_soon" within 3 days. Paid/draft
+  // are never changed. Runs before the reminder pass each hour.
+  @Cron(CronExpression.EVERY_HOUR)
+  async syncStatuses(): Promise<void> {
+    await this.prisma.$executeRaw`
+      update invoice set status = 'overdue'
+      where status in ('sent', 'due_soon') and due_date < current_date`;
+    await this.prisma.$executeRaw`
+      update invoice set status = 'due_soon'
+      where status = 'sent'
+        and due_date >= current_date and due_date <= current_date + 3`;
+  }
+
   @Cron(CronExpression.EVERY_HOUR)
   async dispatchDue(): Promise<number> {
+    await this.syncStatuses();
     const now = new Date();
     const due = await this.prisma.reminder.findMany({
       where: { status: 'scheduled', scheduledFor: { lte: now } },

@@ -29,6 +29,7 @@ model Organisation {
   memberships Membership[]
   customers   Customer[]
   invoices    Invoice[]
+  expenses    Expense[]
 
   @@map("organisation")
 }
@@ -155,4 +156,20 @@ model Payment {
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@map("payment")
+}
+
+// Business expenses — what the owner spends, for a real profit & loss.
+model Expense {
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String       @map("organisation_id") @db.Uuid
+  incurredAt     DateTime     @map("incurred_at") @db.Date
+  category       String
+  amount         BigInt
+  note           String?
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@index([organisationId, incurredAt])
+  @@map("expense")
 }

@@ -8,6 +8,7 @@ import { SupabaseAuthGuard } from './common/auth/supabase.guard';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
+import { ExpensesModule } from './modules/expenses/expenses.module';
 import { PublicInvoiceModule } from './modules/public-invoice/public-invoice.module';
 import { RemindersModule } from './modules/reminders/reminders.module';
 import { HealthModule } from './modules/health/health.module';
@@ -22,6 +23,7 @@ import { HealthModule } from './modules/health/health.module';
     OnboardingModule,
     CustomersModule,
     InvoicesModule,
+    ExpensesModule,
     PublicInvoiceModule,
     RemindersModule,
     HealthModule,
