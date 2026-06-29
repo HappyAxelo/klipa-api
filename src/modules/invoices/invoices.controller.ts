@@ -5,6 +5,7 @@ import {
   Param,
   Post,
   Query,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { SupabaseAuthGuard } from '../../common/auth/supabase.guard';
@@ -22,6 +23,16 @@ export class InvoicesPublicController {
   @Get('public/:token')
   async getPublicInvoice(@Param('token') token: string) {
     return jsonSafe(await this.invoices.getByPublicToken(token));
+  }
+
+  // Downloadable / inline PDF for the shared link.
+  @Get('public/:token/pdf')
+  async getPublicInvoicePdf(@Param('token') token: string) {
+    const { buffer, number } = await this.invoices.getPublicPdf(token);
+    return new StreamableFile(buffer, {
+      type: 'application/pdf',
+      disposition: `inline; filename="invoice-${number}.pdf"`,
+    });
   }
 }
 

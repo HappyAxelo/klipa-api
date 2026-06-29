@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { DatabaseModule } from './common/database/database.module';
 import { EmailModule } from './integrations/email/email.module';
+import { PdfModule } from './integrations/pdf/pdf.module';
 import { SupabaseAuthGuard } from './common/auth/supabase.guard';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { CustomersModule } from './modules/customers/customers.module';
@@ -14,6 +15,7 @@ import { HealthModule } from './modules/health/health.module';
     ConfigModule.forRoot({ isGlobal: true }),
     DatabaseModule,
     EmailModule,
+    PdfModule,
     OnboardingModule,
     CustomersModule,
     InvoicesModule,

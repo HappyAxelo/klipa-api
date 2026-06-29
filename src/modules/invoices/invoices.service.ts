@@ -13,6 +13,7 @@ import { EmailService } from '../../integrations/email/email.service';
 import { InvoiceNumberService } from './invoice-number.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { formatMoney } from '../../common/money/money';
+import { PdfService } from '../../integrations/pdf/pdf.service';
 
 const REMINDER_STAGES: { stage: string; offsetDays: number }[] = [
   { stage: 'before_due', offsetDays: -3 },
@@ -31,6 +32,7 @@ export class InvoicesService {
     private readonly numbers: InvoiceNumberService,
     private readonly email: EmailService,
     private readonly config: ConfigService,
+    private readonly pdf: PdfService,
   ) {}
 
   list(orgId: string, status?: string) {
@@ -320,6 +322,20 @@ export class InvoicesService {
     // email provider must never turn a successful invoice into a 500 — log it
     // and move on so the user keeps their record and can resend later.
     try {
+      // Attach the PDF invoice. PDF failure must not block the email, so it's
+      // generated defensively and simply omitted if it throws.
+      let attachments;
+      try {
+        const pdf = await this.buildInvoicePdf(businessName, invoice, link);
+        attachments = [{ filename: `invoice-${invoice.number}.pdf`, content: pdf }];
+      } catch (pdfErr) {
+        this.logger.warn(
+          `PDF for invoice ${invoice.number} failed: ${
+            pdfErr instanceof Error ? pdfErr.message : pdfErr
+          }`,
+        );
+      }
+
       await this.email.send({
         to: invoice.customer.email,
         subject: `Invoice ${invoice.number} from ${businessName}`,
@@ -329,8 +345,10 @@ export class InvoicesService {
         for <strong>${amount}</strong>, due ${invoice.dueDate
           .toISOString()
           .slice(0, 10)}.</p>
-        <p><a href="${link}">View your invoice</a></p>
+        <p>Your invoice is attached as a PDF. You can also
+        <a href="${link}">view it online</a>.</p>
       `,
+        attachments,
       });
     } catch (err) {
       this.logger.warn(
@@ -339,5 +357,58 @@ export class InvoicesService {
         }`,
       );
     }
+  }
+
+  // Builds the PDF for an invoice object that already has `customer`; line items
+  // are loaded here if not already included (the send-path object omits them).
+  private async buildInvoicePdf(
+    businessName: string,
+    invoice: any,
+    link: string | null,
+  ): Promise<Buffer> {
+    const items =
+      invoice.items ??
+      (await this.prisma.invoiceItem.findMany({ where: { invoiceId: invoice.id } }));
+    return this.pdf.invoicePdf({
+      number: invoice.number,
+      issuedDate: invoice.sentAt ?? invoice.createdAt ?? new Date(),
+      dueDate: new Date(invoice.dueDate),
+      currency: invoice.currency,
+      status: invoice.status,
+      businessName,
+      customerName: invoice.customer.name,
+      customerEmail: invoice.customer.email,
+      items: items.map((it: any) => ({
+        description: it.description,
+        quantity: it.quantity,
+        unitAmount: BigInt(it.unitAmount),
+      })),
+      total: BigInt(invoice.amountTotal),
+      publicLink: link,
+    });
+  }
+
+  // Renders the public PDF for a shared invoice link (no auth; token is the key).
+  async getPublicPdf(token: string): Promise<{ buffer: Buffer; number: string }> {
+    const rows = await this.prisma.$queryRaw<{ organisation_id: string }[]>`
+      SELECT organisation_id FROM invoice WHERE public_token = ${token} LIMIT 1
+    `;
+    if (!rows.length) throw new NotFoundException('Invoice not found');
+    const orgId = rows[0].organisation_id;
+
+    return this.prisma.withTenant(orgId, async (tx) => {
+      const invoice = await tx.invoice.findFirst({
+        where: { publicToken: token },
+        include: { customer: true, items: true },
+      });
+      if (!invoice) throw new NotFoundException('Invoice not found');
+      const org = await tx.organisation.findUnique({ where: { id: orgId } });
+      const buffer = await this.buildInvoicePdf(
+        org?.name ?? '',
+        invoice,
+        this.publicLink(token),
+      );
+      return { buffer, number: invoice.number };
+    });
   }
 }

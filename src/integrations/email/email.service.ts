@@ -1,10 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer;
+}
+
 export interface EmailMessage {
   to: string;
   subject: string;
   html: string;
+  attachments?: EmailAttachment[];
 }
 
 /**
@@ -25,7 +31,8 @@ export class EmailService {
     const provider = this.config.get<string>('EMAIL_PROVIDER', 'console');
 
     if (provider === 'console') {
-      this.logger.log(`[email:console] to=${msg.to} subject="${msg.subject}"`);
+      const att = msg.attachments?.length ? ` attachments=${msg.attachments.length}` : '';
+      this.logger.log(`[email:console] to=${msg.to} subject="${msg.subject}"${att}`);
       return;
     }
 
@@ -43,6 +50,10 @@ export class EmailService {
           to: msg.to,
           subject: msg.subject,
           html: msg.html,
+          attachments: msg.attachments?.map((a) => ({
+            filename: a.filename,
+            content: a.content.toString('base64'),
+          })),
         }),
       });
       if (!res.ok) {
