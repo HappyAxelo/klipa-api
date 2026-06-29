@@ -20,6 +20,7 @@ export interface InvoicePdfData {
   items: InvoicePdfItem[];
   total: bigint;
   publicLink?: string | null;
+  payLink?: string | null;
 }
 
 const BRAND = '#1565E0';
@@ -101,14 +102,23 @@ export class PdfService {
         .text(fmt(data.total), COL.amount, y - 1, { width: COL.right - COL.amount - 5, align: 'right' });
 
       // ---- View / pay online ----
-      if (data.publicLink) {
+      if (data.payLink || data.publicLink) {
         y += 40;
-        doc.font('Helvetica').fontSize(10).fillColor(MUTED)
-          .text('View or pay this invoice online:', COL.left, y);
-        doc.fillColor(BRAND).text(data.publicLink, COL.left, y + 14, {
-          link: data.publicLink,
-          underline: true,
-        });
+        if (data.payLink) {
+          doc.font('Helvetica-Bold').fontSize(11).fillColor(BRAND)
+            .text('Pay this invoice online:', COL.left, y);
+          doc.font('Helvetica').fontSize(10).fillColor(BRAND)
+            .text(data.payLink, COL.left, y + 15, { link: data.payLink, underline: true });
+          y += 34;
+        }
+        if (data.publicLink) {
+          doc.font('Helvetica').fontSize(10).fillColor(MUTED)
+            .text('View invoice online:', COL.left, y);
+          doc.fillColor(BRAND).text(data.publicLink, COL.left, y + 14, {
+            link: data.publicLink,
+            underline: true,
+          });
+        }
       }
 
       // ---- Footer ----

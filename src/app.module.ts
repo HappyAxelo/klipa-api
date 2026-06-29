@@ -8,6 +8,7 @@ import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
 import { PublicInvoiceModule } from './modules/public-invoice/public-invoice.module';
+import { PaymentsModule } from './modules/payments/payments.module';
 import { HealthModule } from './modules/health/health.module';
 
 @Module({
@@ -20,6 +21,7 @@ import { HealthModule } from './modules/health/health.module';
     CustomersModule,
     InvoicesModule,
     PublicInvoiceModule,
+    PaymentsModule,
     HealthModule,
   ],
   providers: [

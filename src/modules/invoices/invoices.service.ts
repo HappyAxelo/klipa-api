@@ -14,6 +14,7 @@ import { InvoiceNumberService } from './invoice-number.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { formatMoney } from '../../common/money/money';
 import { PdfService } from '../../integrations/pdf/pdf.service';
+import { PaymentsService } from '../payments/payments.service';
 
 const REMINDER_STAGES: { stage: string; offsetDays: number }[] = [
   { stage: 'before_due', offsetDays: -3 },
@@ -33,6 +34,7 @@ export class InvoicesService {
     private readonly email: EmailService,
     private readonly config: ConfigService,
     private readonly pdf: PdfService,
+    private readonly payments: PaymentsService,
   ) {}
 
   list(orgId: string, status?: string) {
@@ -321,12 +323,13 @@ export class InvoicesService {
     // Best-effort: the invoice is already saved. A misconfigured or failing
     // email provider must never turn a successful invoice into a 500 — log it
     // and move on so the user keeps their record and can resend later.
+    const pay = this.payments.payLink(invoice.publicToken);
     try {
       // Attach the PDF invoice. PDF failure must not block the email, so it's
       // generated defensively and simply omitted if it throws.
       let attachments;
       try {
-        const pdf = await this.buildInvoicePdf(businessName, invoice, link);
+        const pdf = await this.buildInvoicePdf(businessName, invoice, link, pay);
         attachments = [{ filename: `invoice-${invoice.number}.pdf`, content: pdf }];
       } catch (pdfErr) {
         this.logger.warn(
@@ -335,6 +338,12 @@ export class InvoicesService {
           }`,
         );
       }
+
+      const payButton = pay
+        ? `<p style="margin:20px 0">
+             <a href="${pay}" style="background:#1565E0;color:#ffffff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block">Pay now</a>
+           </p>`
+        : '';
 
       await this.email.send({
         to: invoice.customer.email,
@@ -345,6 +354,7 @@ export class InvoicesService {
         for <strong>${amount}</strong>, due ${invoice.dueDate
           .toISOString()
           .slice(0, 10)}.</p>
+        ${payButton}
         <p>Your invoice is attached as a PDF. You can also
         <a href="${link}">view it online</a>.</p>
       `,
@@ -365,6 +375,7 @@ export class InvoicesService {
     businessName: string,
     invoice: any,
     link: string | null,
+    payLink: string | null = null,
   ): Promise<Buffer> {
     const items =
       invoice.items ??
@@ -385,6 +396,7 @@ export class InvoicesService {
       })),
       total: BigInt(invoice.amountTotal),
       publicLink: link,
+      payLink,
     });
   }
 
@@ -407,6 +419,7 @@ export class InvoicesService {
         org?.name ?? '',
         invoice,
         this.publicLink(token),
+        this.payments.payLink(token),
       );
       return { buffer, number: invoice.number };
     });

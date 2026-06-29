@@ -140,6 +140,9 @@ model Payment {
   invoiceId String   @map("invoice_id") @db.Uuid
   amount    BigInt
   method    String   @default("manual") // manual | mobile_money | card
+  // Gateway transaction id (e.g. Flutterwave), null for manual payments.
+  // Unique so a retried webhook can't record the same payment twice.
+  providerRef String? @unique @map("provider_ref")
   paidAt    DateTime @default(now()) @map("paid_at")
   createdAt DateTime @default(now()) @map("created_at")
 
