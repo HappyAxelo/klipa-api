@@ -17,7 +17,15 @@ export class PublicInvoiceService {
       where: { publicToken: token },
       include: {
         customer: { select: { name: true } },
-        organisation: { select: { name: true, logoUrl: true, currency: true } },
+        organisation: {
+          select: {
+            name: true,
+            logoUrl: true,
+            currency: true,
+            momoCode: true,
+            bankAccount: true,
+          },
+        },
       },
     });
     if (!invoice) throw new NotFoundException('Invoice not found');
@@ -33,6 +41,8 @@ export class PublicInvoiceService {
       business: {
         name: invoice.organisation.name,
         logo_url: invoice.organisation.logoUrl,
+        momo_code: invoice.organisation.momoCode,
+        bank_account: invoice.organisation.bankAccount,
       },
       billed_to: invoice.customer.name,
     };

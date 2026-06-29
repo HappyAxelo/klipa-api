@@ -21,6 +21,17 @@ export class CreateOnboardingDto {
   @IsString()
   logoUrl?: string;
 
+  // How this business gets paid by its customers (shown on every invoice).
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  momoCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  bankAccount?: string;
+
   // Consent captured on the Terms screen. Required: a user cannot onboard
   // without having accepted, and we store exactly what they accepted.
   @IsString()

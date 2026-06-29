@@ -18,6 +18,12 @@ model Organisation {
   currency  String   @default("RWF") @db.Char(3)
   logoUrl   String?  @map("logo_url")
   plan      String   @default("starter") // starter | growth | business
+  // Where this business gets paid by ITS customers (shown on the invoice).
+  momoCode    String? @map("momo_code")
+  bankAccount String? @map("bank_account")
+  // Platform subscription: null/past => still on the free tier and subject to
+  // the free-invoice limit; a future date => unlimited until then.
+  subscribedUntil DateTime? @map("subscribed_until")
   createdAt DateTime @default(now()) @map("created_at")
 
   memberships Membership[]

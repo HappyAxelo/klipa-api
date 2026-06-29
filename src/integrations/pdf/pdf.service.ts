@@ -20,7 +20,8 @@ export interface InvoicePdfData {
   items: InvoicePdfItem[];
   total: bigint;
   publicLink?: string | null;
-  payLink?: string | null;
+  momoCode?: string | null;
+  bankAccount?: string | null;
 }
 
 const BRAND = '#1565E0';
@@ -101,24 +102,32 @@ export class PdfService {
       doc.fillColor(BRAND).fontSize(14)
         .text(fmt(data.total), COL.amount, y - 1, { width: COL.right - COL.amount - 5, align: 'right' });
 
-      // ---- View / pay online ----
-      if (data.payLink || data.publicLink) {
-        y += 40;
-        if (data.payLink) {
-          doc.font('Helvetica-Bold').fontSize(11).fillColor(BRAND)
-            .text('Pay this invoice online:', COL.left, y);
-          doc.font('Helvetica').fontSize(10).fillColor(BRAND)
-            .text(data.payLink, COL.left, y + 15, { link: data.payLink, underline: true });
-          y += 34;
+      // ---- How to pay (direct MoMo / bank) ----
+      if (data.momoCode || data.bankAccount) {
+        y += 36;
+        doc.font('Helvetica-Bold').fontSize(11).fillColor(INK)
+          .text(`How to pay ${data.businessName}`, COL.left, y);
+        y += 18;
+        doc.font('Helvetica').fontSize(10).fillColor(INK);
+        if (data.momoCode) {
+          doc.text(`Mobile Money:  ${data.momoCode}`, COL.left, y);
+          y += 15;
         }
-        if (data.publicLink) {
-          doc.font('Helvetica').fontSize(10).fillColor(MUTED)
-            .text('View invoice online:', COL.left, y);
-          doc.fillColor(BRAND).text(data.publicLink, COL.left, y + 14, {
-            link: data.publicLink,
-            underline: true,
-          });
+        if (data.bankAccount) {
+          doc.text(`Bank:  ${data.bankAccount}`, COL.left, y);
+          y += 15;
         }
+      }
+
+      // ---- View online ----
+      if (data.publicLink) {
+        y += 16;
+        doc.font('Helvetica').fontSize(10).fillColor(MUTED)
+          .text('View invoice online:', COL.left, y);
+        doc.fillColor(BRAND).text(data.publicLink, COL.left, y + 14, {
+          link: data.publicLink,
+          underline: true,
+        });
       }
 
       // ---- Footer ----

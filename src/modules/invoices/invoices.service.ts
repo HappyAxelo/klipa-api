@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
@@ -14,7 +15,6 @@ import { InvoiceNumberService } from './invoice-number.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { formatMoney } from '../../common/money/money';
 import { PdfService } from '../../integrations/pdf/pdf.service';
-import { PaymentsService } from '../payments/payments.service';
 
 const REMINDER_STAGES: { stage: string; offsetDays: number }[] = [
   { stage: 'before_due', offsetDays: -3 },
@@ -34,8 +34,43 @@ export class InvoicesService {
     private readonly email: EmailService,
     private readonly config: ConfigService,
     private readonly pdf: PdfService,
-    private readonly payments: PaymentsService,
   ) {}
+
+  // Free invoices a business gets before it must subscribe (lifetime).
+  private freeLimit(): number {
+    return Number(this.config.get<string>('FREE_INVOICE_LIMIT', '5'));
+  }
+
+  /** Throws 402 if the org has used its free invoices and isn't subscribed. */
+  private async assertCanCreateInvoice(tx: Prisma.TransactionClient, orgId: string) {
+    const org = await tx.organisation.findUnique({
+      where: { id: orgId },
+      select: { subscribedUntil: true },
+    });
+    const subscribed =
+      org?.subscribedUntil != null && org.subscribedUntil > new Date();
+    if (subscribed) return;
+
+    const used = await tx.invoice.count({ where: { organisationId: orgId } });
+    const limit = this.freeLimit();
+    if (used >= limit) {
+      const instructions = this.config.get<string>(
+        'SUBSCRIPTION_INSTRUCTIONS',
+        'You have used all your free invoices. Please subscribe to continue.',
+      );
+      throw new HttpException(
+        {
+          statusCode: 402,
+          error: 'Payment Required',
+          message: `Free limit reached (${used}/${limit} invoices used). Subscribe to send more.`,
+          freeLimit: limit,
+          used,
+          subscriptionInstructions: instructions,
+        },
+        402,
+      );
+    }
+  }
 
   list(orgId: string, status?: string) {
     return this.prisma.withTenant(orgId, (tx) =>
@@ -75,6 +110,9 @@ export class InvoicesService {
           // to be set, which withTenant does. Reading outside is blocked.
           const org = await tx.organisation.findUnique({ where: { id: orgId } });
           if (!org) throw new NotFoundException('Organisation not found');
+
+          // Enforce the free-invoice limit / subscription before creating.
+          await this.assertCanCreateInvoice(tx, orgId);
 
           const customer = await this.customers.findOrCreate(tx, orgId, dto.customer);
           const number = await this.numbers.next(tx, orgId, attempt);
@@ -259,6 +297,8 @@ export class InvoicesService {
           unitAmount: item.unitAmount.toString(),
         })),
         orgName: org?.name ?? '',
+        momoCode: org?.momoCode ?? null,
+        bankAccount: org?.bankAccount ?? null,
       };
     });
   }
@@ -323,7 +363,11 @@ export class InvoicesService {
     // Best-effort: the invoice is already saved. A misconfigured or failing
     // email provider must never turn a successful invoice into a 500 — log it
     // and move on so the user keeps their record and can resend later.
-    const pay = this.payments.payLink(invoice.publicToken);
+    // How the customer pays this business directly (MoMo / bank on the invoice).
+    const pay = await this.prisma.organisation.findUnique({
+      where: { id: invoice.organisationId },
+      select: { momoCode: true, bankAccount: true },
+    });
     try {
       // Attach the PDF invoice. PDF failure must not block the email, so it's
       // generated defensively and simply omitted if it throws.
@@ -339,11 +383,14 @@ export class InvoicesService {
         );
       }
 
-      const payButton = pay
-        ? `<p style="margin:20px 0">
-             <a href="${pay}" style="background:#1565E0;color:#ffffff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block">Pay now</a>
-           </p>`
-        : '';
+      const payHtml =
+        pay?.momoCode || pay?.bankAccount
+          ? `<div style="margin:16px 0;padding:14px 16px;background:#EEF3F9;border-radius:8px">
+               <p style="margin:0 0 6px;font-weight:bold;color:#0F172A">How to pay ${businessName}</p>
+               ${pay.momoCode ? `<p style="margin:2px 0">Mobile Money: <strong>${pay.momoCode}</strong></p>` : ''}
+               ${pay.bankAccount ? `<p style="margin:2px 0">Bank: <strong>${pay.bankAccount}</strong></p>` : ''}
+             </div>`
+          : '';
 
       await this.email.send({
         to: invoice.customer.email,
@@ -354,7 +401,7 @@ export class InvoicesService {
         for <strong>${amount}</strong>, due ${invoice.dueDate
           .toISOString()
           .slice(0, 10)}.</p>
-        ${payButton}
+        ${payHtml}
         <p>Your invoice is attached as a PDF. You can also
         <a href="${link}">view it online</a>.</p>
       `,
@@ -375,7 +422,7 @@ export class InvoicesService {
     businessName: string,
     invoice: any,
     link: string | null,
-    payLink: string | null = null,
+    pay: { momoCode?: string | null; bankAccount?: string | null } | null = null,
   ): Promise<Buffer> {
     const items =
       invoice.items ??
@@ -396,7 +443,8 @@ export class InvoicesService {
       })),
       total: BigInt(invoice.amountTotal),
       publicLink: link,
-      payLink,
+      momoCode: pay?.momoCode ?? null,
+      bankAccount: pay?.bankAccount ?? null,
     });
   }
 
@@ -419,7 +467,7 @@ export class InvoicesService {
         org?.name ?? '',
         invoice,
         this.publicLink(token),
-        this.payments.payLink(token),
+        org,
       );
       return { buffer, number: invoice.number };
     });

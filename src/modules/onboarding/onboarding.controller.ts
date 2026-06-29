@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, UseGuards } from '@nestjs/common';
 import { SupabaseAuthGuard } from '../../common/auth/supabase.guard';
-import { CurrentUser } from '../../common/auth/current-user.decorator';
+import { CurrentUser, CurrentOrg } from '../../common/auth/current-user.decorator';
 import { AuthContext } from '../../common/auth/supabase.guard';
 import { OnboardingService } from './onboarding.service';
 import { CreateOnboardingDto } from './dto/create-onboarding.dto';
+import { UpdatePaymentDetailsDto } from './dto/update-payment-details.dto';
 import { jsonSafe } from '../../common/money/money';
 
 @Controller('v1')
@@ -37,5 +38,14 @@ export class OnboardingController {
     );
 
     return { ...base, ...profile };
+  }
+
+  // Update the business's payment details shown on its invoices (MoMo / bank).
+  @Patch('payment-details')
+  async updatePaymentDetails(
+    @CurrentOrg() orgId: string,
+    @Body() dto: UpdatePaymentDetailsDto,
+  ) {
+    return jsonSafe(await this.onboarding.updatePaymentDetails(orgId, dto));
   }
 }
