@@ -78,7 +78,8 @@ export class InvoicesService {
         // Scope to the org explicitly — never rely on RLS alone, since the API's
         // DB role may bypass it. status is an optional extra filter.
         where: { organisationId: orgId, ...(status ? { status } : {}) },
-        include: { customer: true },
+        // payments are needed for accurate "collected" / paid status / P&L.
+        include: { customer: true, payments: true },
         orderBy: { createdAt: 'desc' },
       }),
     );
