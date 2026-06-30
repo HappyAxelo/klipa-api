@@ -5,6 +5,7 @@ import { AuthContext } from '../../common/auth/supabase.guard';
 import { OnboardingService } from './onboarding.service';
 import { CreateOnboardingDto } from './dto/create-onboarding.dto';
 import { UpdatePaymentDetailsDto } from './dto/update-payment-details.dto';
+import { UpdateBusinessDto } from './dto/update-business.dto';
 import { jsonSafe } from '../../common/money/money';
 
 @Controller('v1')
@@ -38,6 +39,16 @@ export class OnboardingController {
     );
 
     return { ...base, ...profile };
+  }
+
+  // Update business profile (name, category, currency, logo, owner name).
+  @Patch('business')
+  async updateBusiness(
+    @CurrentUser() auth: AuthContext,
+    @CurrentOrg() orgId: string,
+    @Body() dto: UpdateBusinessDto,
+  ) {
+    return jsonSafe(await this.onboarding.updateBusiness(orgId, auth.userId, dto));
   }
 
   // Update the business's payment details shown on its invoices (MoMo / bank).

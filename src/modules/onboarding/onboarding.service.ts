@@ -120,6 +120,7 @@ export class OnboardingService {
         category: org?.category ?? '',
         currency: org?.currency ?? 'RWF',
         owner: profile?.fullName ?? '',
+        logoUrl: org?.logoUrl ?? null,
         momoCode: org?.momoCode ?? null,
         bankAccount: org?.bankAccount ?? null,
         // Subscription / usage so the app can show "x of 5 free used" + paywall.
@@ -128,6 +129,36 @@ export class OnboardingService {
         invoicesUsed,
         freeLimit,
         invoicesRemaining: subscribed ? null : Math.max(0, freeLimit - invoicesUsed),
+      };
+    });
+  }
+
+  async updateBusiness(
+    orgId: string,
+    userId: string,
+    dto: import('./dto/update-business.dto').UpdateBusinessDto,
+  ) {
+    return this.prisma.withTenant(orgId, async (tx) => {
+      const org = await tx.organisation.update({
+        where: { id: orgId },
+        data: {
+          ...(dto.businessName !== undefined ? { name: dto.businessName } : {}),
+          ...(dto.category !== undefined ? { category: dto.category } : {}),
+          ...(dto.currency !== undefined ? { currency: dto.currency.toUpperCase() } : {}),
+          ...(dto.logoUrl !== undefined ? { logoUrl: dto.logoUrl } : {}),
+        },
+      });
+      if (dto.fullName !== undefined) {
+        await tx.userProfile.update({
+          where: { id: userId },
+          data: { fullName: dto.fullName },
+        });
+      }
+      return {
+        name: org.name,
+        category: org.category,
+        currency: org.currency,
+        logoUrl: org.logoUrl,
       };
     });
   }
