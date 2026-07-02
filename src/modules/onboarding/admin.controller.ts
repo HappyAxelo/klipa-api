@@ -8,6 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { OnboardingService } from './onboarding.service';
 import { jsonSafe } from '../../common/money/money';
+import { safeEqual } from '../../common/security/security.util';
 
 interface ActivateBody {
   organisationId?: string;
@@ -32,7 +33,7 @@ export class AdminController {
     @Body() body: ActivateBody,
   ) {
     const expected = this.config.get<string>('ADMIN_TOKEN');
-    if (!expected || token !== expected) {
+    if (!safeEqual(token, expected)) {
       throw new UnauthorizedException('Invalid admin token');
     }
     // Resolve the business by id, exact name, or owner email.

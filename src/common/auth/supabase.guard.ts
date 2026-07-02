@@ -57,7 +57,13 @@ export class SupabaseAuthGuard implements CanActivate {
     const token = header.slice('Bearer '.length);
     let payload: JWTPayload;
     try {
-      const result = await jwtVerify(token, this.getJwks());
+      // Pin issuer + algorithms: only tokens minted by THIS Supabase project's
+      // auth server are accepted, only on the expected asymmetric algorithms.
+      const projectUrl = this.config.getOrThrow<string>('SUPABASE_PROJECT_URL');
+      const result = await jwtVerify(token, this.getJwks(), {
+        issuer: `${projectUrl.replace(/\/$/, '')}/auth/v1`,
+        algorithms: ['ES256', 'RS256'],
+      });
       payload = result.payload;
     } catch {
       throw new UnauthorizedException('Invalid or expired token');

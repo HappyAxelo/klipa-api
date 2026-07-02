@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { DatabaseModule } from './common/database/database.module';
 import { EmailModule } from './integrations/email/email.module';
 import { PdfModule } from './integrations/pdf/pdf.module';
@@ -17,6 +19,8 @@ import { HealthModule } from './modules/health/health.module';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
+    // Rate limit: 300 requests/min per IP — generous for real use, stops abuse.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     DatabaseModule,
     EmailModule,
     PdfModule,
@@ -33,6 +37,7 @@ import { HealthModule } from './modules/health/health.module';
     // because the public invoice route must stay open. Provided here so Nest
     // can inject its dependencies (ConfigService, PrismaService).
     SupabaseAuthGuard,
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
 export class AppModule {}

@@ -3,6 +3,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
   MinLength,
@@ -12,6 +13,7 @@ export class CreateExpenseDto {
   // Whole units (e.g. RWF), like invoice amounts.
   @IsInt()
   @Min(1)
+  @Max(1000000000000)
   amount: number;
 
   @IsString()

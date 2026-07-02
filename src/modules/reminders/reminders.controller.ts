@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RemindersService } from './reminders.service';
+import { safeEqual } from '../../common/security/security.util';
 
 // Manual trigger for the reminder dispatcher (the @Cron runs it hourly anyway).
 // Guarded by the same ADMIN_TOKEN. Lets you flush reminders on demand / verify.
@@ -21,7 +22,7 @@ export class RemindersController {
   @HttpCode(200)
   async run(@Headers('x-admin-token') token: string) {
     const expected = this.config.get<string>('ADMIN_TOKEN');
-    if (!expected || token !== expected) {
+    if (!safeEqual(token, expected)) {
       throw new UnauthorizedException('Invalid admin token');
     }
     const dispatched = await this.reminders.dispatchDue();

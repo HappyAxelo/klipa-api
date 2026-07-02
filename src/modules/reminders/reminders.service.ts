@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/database/prisma.service';
 import { EmailService } from '../../integrations/email/email.service';
 import { formatMoney } from '../../common/money/money';
+import { escapeHtml } from '../../common/security/security.util';
 
 /**
  * Sends the reminders that invoices schedule into the DB (before-due, on-due,
@@ -100,12 +101,14 @@ export class RemindersService {
     const base = this.config.get<string>('PUBLIC_APP_URL', 'https://klipwa.netlify.app');
     const link = inv.publicToken ? `${base}/i/${inv.publicToken}` : null;
 
+    // Escape all user-entered values before HTML interpolation.
+    const eBiz = escapeHtml(business);
     const pay =
       org?.momoCode || org?.bankAccount
         ? `<div style="margin:16px 0;padding:14px 16px;background:#EEF3F9;border-radius:8px">
-             <p style="margin:0 0 6px;font-weight:bold">How to pay ${business}</p>
-             ${org.momoCode ? `<p style="margin:2px 0">Mobile Money: <strong>${org.momoCode}</strong></p>` : ''}
-             ${org.bankAccount ? `<p style="margin:2px 0">Bank: <strong>${org.bankAccount}</strong></p>` : ''}
+             <p style="margin:0 0 6px;font-weight:bold">How to pay ${eBiz}</p>
+             ${org.momoCode ? `<p style="margin:2px 0">Mobile Money: <strong>${escapeHtml(org.momoCode)}</strong></p>` : ''}
+             ${org.bankAccount ? `<p style="margin:2px 0">Bank: <strong>${escapeHtml(org.bankAccount)}</strong></p>` : ''}
            </div>`
         : '';
 
@@ -113,12 +116,12 @@ export class RemindersService {
       to: inv.customer.email,
       subject,
       html: `
-        <p>Hi ${inv.customer.name},</p>
+        <p>Hi ${escapeHtml(inv.customer.name)},</p>
         <p>${lead}</p>
         <p>Amount due: <strong>${amount}</strong> · Due: ${due}</p>
         ${pay}
         ${link ? `<p><a href="${link}">View your invoice</a></p>` : ''}
-        <p style="color:#64748B;font-size:12px">Sent by ${business} via K-Lipwa.</p>
+        <p style="color:#64748B;font-size:12px">Sent by ${eBiz} via K-Lipwa.</p>
       `,
     };
   }

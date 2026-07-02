@@ -14,6 +14,7 @@ import { EmailService } from '../../integrations/email/email.service';
 import { InvoiceNumberService } from './invoice-number.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { formatMoney } from '../../common/money/money';
+import { escapeHtml } from '../../common/security/security.util';
 import { PdfService } from '../../integrations/pdf/pdf.service';
 
 const REMINDER_STAGES: { stage: string; offsetDays: number }[] = [
@@ -384,12 +385,15 @@ export class InvoicesService {
         );
       }
 
+      // Escape all user-entered values before HTML interpolation.
+      const eBiz = escapeHtml(businessName);
+      const eCust = escapeHtml(invoice.customer.name);
       const payHtml =
         pay?.momoCode || pay?.bankAccount
           ? `<div style="margin:16px 0;padding:14px 16px;background:#EEF3F9;border-radius:8px">
-               <p style="margin:0 0 6px;font-weight:bold;color:#0F172A">How to pay ${businessName}</p>
-               ${pay.momoCode ? `<p style="margin:2px 0">Mobile Money: <strong>${pay.momoCode}</strong></p>` : ''}
-               ${pay.bankAccount ? `<p style="margin:2px 0">Bank: <strong>${pay.bankAccount}</strong></p>` : ''}
+               <p style="margin:0 0 6px;font-weight:bold;color:#0F172A">How to pay ${eBiz}</p>
+               ${pay.momoCode ? `<p style="margin:2px 0">Mobile Money: <strong>${escapeHtml(pay.momoCode)}</strong></p>` : ''}
+               ${pay.bankAccount ? `<p style="margin:2px 0">Bank: <strong>${escapeHtml(pay.bankAccount)}</strong></p>` : ''}
              </div>`
           : '';
 
@@ -397,8 +401,8 @@ export class InvoicesService {
         to: invoice.customer.email,
         subject: `Invoice ${invoice.number} from ${businessName}`,
         html: `
-        <p>Hi ${invoice.customer.name},</p>
-        <p>${businessName} has sent you invoice <strong>${invoice.number}</strong>
+        <p>Hi ${eCust},</p>
+        <p>${eBiz} has sent you invoice <strong>${escapeHtml(invoice.number)}</strong>
         for <strong>${amount}</strong>, due ${invoice.dueDate
           .toISOString()
           .slice(0, 10)}.</p>

@@ -1,4 +1,4 @@
-import { IsOptional, IsString, Length, MaxLength } from 'class-validator';
+import { IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
 
 export class UpdateBusinessDto {
   @IsOptional()
@@ -19,6 +19,7 @@ export class UpdateBusinessDto {
   @IsOptional()
   @IsString()
   @MaxLength(500)
+  @Matches(/^https:\/\//, { message: 'logoUrl must be an https URL' })
   logoUrl?: string;
 
   // Owner's name (stored on the user profile).
