@@ -233,13 +233,17 @@ export class AssistantService {
   }
 
   // Saving is best-effort: a hiccup here must never break the answer.
+  // Explicit timestamps 1ms apart: createMany would give both rows the same
+  // now(), making question/answer order ambiguous on read-back.
   private async remember(orgId: string, userId: string, question: string, answer: string) {
     try {
+      const asked = new Date();
+      const answered = new Date(asked.getTime() + 1);
       await this.prisma.withTenant(orgId, (tx) =>
         tx.assistantMessage.createMany({
           data: [
-            { organisationId: orgId, userId, role: 'user', content: question.slice(0, 2000) },
-            { organisationId: orgId, userId, role: 'assistant', content: answer.slice(0, 4000) },
+            { organisationId: orgId, userId, role: 'user', content: question.slice(0, 2000), createdAt: asked },
+            { organisationId: orgId, userId, role: 'assistant', content: answer.slice(0, 4000), createdAt: answered },
           ],
         }),
       );
