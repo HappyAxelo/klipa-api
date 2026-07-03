@@ -9,6 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { OnboardingService } from './onboarding.service';
 import { PrismaService } from '../../common/database/prisma.service';
+import { AssistantService } from '../assistant/assistant.service';
 import { jsonSafe } from '../../common/money/money';
 import { safeEqual } from '../../common/security/security.util';
 
@@ -29,7 +30,15 @@ export class AdminController {
     private readonly onboarding: OnboardingService,
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly assistant: AssistantService,
   ) {}
+
+  // Owner diagnostic: is the Klipwa AI key working? Never returns the key.
+  @Get('ai-check')
+  async aiCheck(@Headers('x-admin-token') token: string) {
+    this.assertAdmin(token);
+    return this.assistant.aiCheck();
+  }
 
   private assertAdmin(token: string) {
     const expected = this.config.get<string>('ADMIN_TOKEN');

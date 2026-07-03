@@ -40,8 +40,48 @@ export class AssistantService {
     private readonly config: ConfigService,
   ) {}
 
+  // Reads the API key defensively: trims whitespace, strips accidental quotes
+  // and a pasted "ANTHROPIC_API_KEY=" prefix (a paste slip that has happened
+  // with other env vars on this project before).
+  private apiKey(): string | null {
+    let k = this.config.get<string>('ANTHROPIC_API_KEY') ?? '';
+    k = k.trim().replace(/^["']|["']$/g, '');
+    if (k.toUpperCase().startsWith('ANTHROPIC_API_KEY=')) k = k.slice('ANTHROPIC_API_KEY='.length).trim();
+    return k || null;
+  }
+
+  private model(): string {
+    const m = (this.config.get<string>('AI_MODEL') ?? '').trim();
+    return m || 'claude-sonnet-5';
+  }
+
   aiEnabled(): boolean {
-    return Boolean(this.config.get<string>('ANTHROPIC_API_KEY'));
+    return Boolean(this.apiKey());
+  }
+
+  /** Owner diagnostic: pings Anthropic with the configured key and reports
+   *  what happened, never echoing the key itself. */
+  async aiCheck(): Promise<{ ok: boolean; configured: boolean; model: string; status?: number; hint?: string }> {
+    const key = this.apiKey();
+    const model = this.model();
+    if (!key) return { ok: false, configured: false, model, hint: 'ANTHROPIC_API_KEY is not set on Railway.' };
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        body: JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: 'Say ok' }] }),
+      });
+      if (res.ok) return { ok: true, configured: true, model };
+      const body = (await res.text()).slice(0, 200);
+      const hint =
+        res.status === 401 ? 'The API key is invalid. Re-copy it from console.anthropic.com and paste only the key value.'
+        : res.status === 404 ? `Model "${model}" was not found. Remove AI_MODEL or set it to a valid model id.`
+        : res.status === 429 ? 'Rate limited or out of credits. Check your Anthropic plan and billing.'
+        : `Anthropic returned ${res.status}.`;
+      return { ok: false, configured: true, model, status: res.status, hint: `${hint} (${body})` };
+    } catch (e) {
+      return { ok: false, configured: true, model, hint: `Network error calling Anthropic: ${e instanceof Error ? e.message : e}` };
+    }
   }
 
   // ---- Gather a compact snapshot of the business from real data ----
@@ -209,8 +249,9 @@ export class AssistantService {
   }
 
   private async claudeAnswer(question: string, c: Ctx): Promise<string | null> {
-    const key = this.config.getOrThrow<string>('ANTHROPIC_API_KEY');
-    const model = this.config.get<string>('AI_MODEL', 'claude-sonnet-5');
+    const key = this.apiKey();
+    if (!key) return null;
+    const model = this.model();
     const fmt = (n: bigint) => formatMoney(n, c.currency);
     const context = [
       `Currency: ${c.currency}`,
