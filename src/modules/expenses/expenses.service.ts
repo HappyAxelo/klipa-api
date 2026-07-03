@@ -24,6 +24,7 @@ export class ExpensesService {
           category: dto.category,
           incurredAt: dto.incurredAt ? new Date(dto.incurredAt) : new Date(),
           note: dto.note ?? null,
+          receiptUrl: dto.receiptUrl ?? null,
         },
       }),
     );

@@ -186,6 +186,7 @@ model Expense {
   category       String
   amount         BigInt
   note           String?
+  receiptUrl     String?      @map("receipt_url")
   createdAt      DateTime     @default(now()) @map("created_at")
 
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)

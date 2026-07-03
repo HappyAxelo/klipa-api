@@ -18,6 +18,19 @@ interface Ctx {
   forecastNextMonth: bigint;
 }
 
+// The founder wants clean, plain text in front of business owners: no em
+// dashes, no decorative emoji (lightbulbs etc.), no markdown bullets/bold.
+function cleanText(s: string): string {
+  return s
+    .replace(/\s*[—–]\s*/g, '. ')
+    .replace(/[\u{1F4A1}\u{2728}\u{1F680}\u{1F4C8}\u{1F4C9}\u{1F4B0}\u{1F4A5}\u{1F525}\u{1F389}\u{2b50}\u{1F31F}]/gu, '')
+    .replace(/\*\*/g, '')
+    .replace(/^[-*•]\s+/gm, '')
+    .replace(/\.\.+/g, '.')
+    .replace(/  +/g, ' ')
+    .trim();
+}
+
 @Injectable()
 export class AssistantService {
   private readonly logger = new Logger(AssistantService.name);
@@ -135,16 +148,16 @@ export class AssistantService {
     ];
     const tips: string[] = [];
     if (c.overdue > 0n && c.topDebtors.length) {
-      tips.push(`Follow up ${c.topDebtors[0].name} — they owe ${fmt(c.topDebtors[0].amount)}.`);
+      tips.push(`Follow up ${c.topDebtors[0].name}. They owe you ${fmt(c.topDebtors[0].amount)}.`);
     }
     if (c.expensesThisMonth > c.collectedThisMonth && c.collectedThisMonth >= 0n) {
       tips.push('Spending is higher than income this month. Review your biggest expenses.');
     }
     if (c.topExpenses.length) {
-      tips.push(`Biggest expense category: ${c.topExpenses[0].category} (${fmt(c.topExpenses[0].amount)}).`);
+      tips.push(`Your biggest expense category is ${c.topExpenses[0].category} (${fmt(c.topExpenses[0].amount)}).`);
     }
-    if (!tips.length) tips.push('Send invoices and record payments — insights will sharpen as data grows.');
-    return { cards, tips };
+    if (!tips.length) tips.push('Send invoices and record payments. Your insights will sharpen as data grows.');
+    return { cards, tips: tips.map(cleanText) };
   }
 
   // ---- Conversational answer ----
@@ -154,23 +167,30 @@ export class AssistantService {
     if (this.aiEnabled()) {
       try {
         const answer = await this.claudeAnswer(question, c);
-        if (answer) return { answer, source: 'ai' };
+        if (answer) return { answer: cleanText(answer), source: 'ai' };
       } catch (e) {
         this.logger.warn(`AI answer failed, using rule fallback: ${e instanceof Error ? e.message : e}`);
       }
     }
-    return { answer: rule, source: 'rule' };
+    return { answer: cleanText(rule), source: 'rule' };
   }
 
   private ruleAnswer(q: string, c: Ctx): string {
     const fmt = (n: bigint) => formatMoney(n, c.currency);
     const s = q.toLowerCase();
+    if (/(where.*money|what happen.*money|money go|cash ?flow)/.test(s)) {
+      const net = c.collectedThisMonth - c.expensesThisMonth;
+      const spend = c.topExpenses.length
+        ? ` Your spending went mostly to ${c.topExpenses.map((e) => `${e.category} (${fmt(e.amount)})`).join(', ')}.`
+        : '';
+      return `This month ${fmt(c.collectedThisMonth)} came in and ${fmt(c.expensesThisMonth)} went out, leaving you ${fmt(net)}.${spend} You are still owed ${fmt(c.outstanding)} by customers.`;
+    }
     if (/(profit|make|earn)/.test(s)) {
       const profit = c.collectedThisMonth - c.expensesThisMonth;
       return `This month you collected ${fmt(c.collectedThisMonth)} and spent ${fmt(c.expensesThisMonth)}, so your profit is ${fmt(profit)}.`;
     }
     if (/(owe|owes|owed|debt|outstanding|unpaid)/.test(s)) {
-      if (!c.topDebtors.length) return 'No one owes you right now — all sent invoices are paid.';
+      if (!c.topDebtors.length) return 'No one owes you right now. All sent invoices are paid.';
       const list = c.topDebtors.map((d) => `${d.name} (${fmt(d.amount)})`).join(', ');
       return `You are owed ${fmt(c.outstanding)} across ${c.unpaidCount} invoice(s). Top: ${list}.`;
     }
@@ -185,7 +205,7 @@ export class AssistantService {
     if (/(predict|forecast|next month|projection)/.test(s)) {
       return `Based on your recent collections, next month is projected around ${fmt(c.forecastNextMonth)}.`;
     }
-    return `This month: collected ${fmt(c.collectedThisMonth)}, outstanding ${fmt(c.outstanding)} (${c.unpaidCount} unpaid), overdue ${fmt(c.overdue)}. Ask me about profit, who owes you, late payers, expenses, or next month's forecast.`;
+    return `This month: collected ${fmt(c.collectedThisMonth)}, outstanding ${fmt(c.outstanding)} (${c.unpaidCount} unpaid), overdue ${fmt(c.overdue)}. Ask me about profit, who owes you, late payers, expenses, where your money went, or next month's forecast.`;
   }
 
   private async claudeAnswer(question: string, c: Ctx): Promise<string | null> {
@@ -216,9 +236,14 @@ export class AssistantService {
         model,
         max_tokens: 400,
         system:
-          'You are Klipwa AI, a concise business assistant for small African businesses. ' +
-          'Answer ONLY from the DATA provided. Be short, plain, and practical (2-4 sentences). ' +
-          'Never invent numbers. If the data does not cover the question, say so and suggest what to record.',
+          'You are Klipwa AI, the business assistant inside Klipwa, an invoicing and bookkeeping app for African small businesses. ' +
+          'Your job is to help owners understand exactly what happens to their money. ' +
+          'Answer ONLY from the DATA provided; every number you state must appear in the DATA, with its currency. ' +
+          'Never invent, estimate, or extrapolate numbers beyond what is given. ' +
+          'If the DATA does not cover the question, say plainly that the answer is not in their records yet and name the one thing to record in Klipwa to get it. ' +
+          'Be short and practical: 2 to 4 plain sentences a busy shop owner can act on today. ' +
+          'Write in the same language the question was asked in (English, Kinyarwanda, French, or Swahili). ' +
+          'Plain text only: no markdown, no bullet lists, no emojis, no em dashes.',
         messages: [
           { role: 'user', content: `DATA:\n${context}\n\nQUESTION: ${question}` },
         ],

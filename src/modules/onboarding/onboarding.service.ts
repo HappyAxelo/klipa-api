@@ -218,8 +218,9 @@ export class OnboardingService {
     throw new BadRequestException('Provide organisationId, businessName, or email');
   }
 
-  // Admin: grant/extend a subscription after a manual bank-transfer payment.
-  async activateSubscription(orgId: string, months: number) {
+  // Admin: grant/extend a subscription after a manual MoMo/bank payment
+  // straight to the founder's business account.
+  async activateSubscription(orgId: string, months: number, plan = 'starter') {
     return this.prisma.withTenant(orgId, async (tx) => {
       const current = await tx.organisation.findUnique({ where: { id: orgId } });
       if (!current) return null;
@@ -230,9 +231,13 @@ export class OnboardingService {
       base.setMonth(base.getMonth() + months);
       const org = await tx.organisation.update({
         where: { id: orgId },
-        data: { subscribedUntil: base, plan: 'growth' },
+        data: { subscribedUntil: base, plan },
       });
-      return { organisationId: orgId, subscribedUntil: org.subscribedUntil };
+      return {
+        organisationId: orgId,
+        plan: org.plan,
+        subscribedUntil: org.subscribedUntil,
+      };
     });
   }
 }

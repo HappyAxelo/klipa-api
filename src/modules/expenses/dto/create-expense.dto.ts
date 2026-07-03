@@ -3,6 +3,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -29,4 +30,11 @@ export class CreateExpenseDto {
   @IsString()
   @MaxLength(200)
   note?: string;
+
+  // Photo of the paper receipt, uploaded to storage by the app.
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Matches(/^https:\/\//, { message: 'receiptUrl must be an https URL' })
+  receiptUrl?: string;
 }

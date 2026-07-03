@@ -16,6 +16,7 @@ import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { formatMoney } from '../../common/money/money';
 import { escapeHtml } from '../../common/security/security.util';
 import { PdfService } from '../../integrations/pdf/pdf.service';
+import { effectivePlan, PLANS } from '../billing/plans';
 
 const REMINDER_STAGES: { stage: string; offsetDays: number }[] = [
   { stage: 'before_due', offsetDays: -3 },
@@ -37,43 +38,62 @@ export class InvoicesService {
     private readonly pdf: PdfService,
   ) {}
 
-  // Free invoices a business gets before it must subscribe (lifetime).
-  private freeLimit(): number {
-    return Number(this.config.get<string>('FREE_INVOICE_LIMIT', '5'));
-  }
-
-  /** Throws 402 if the org has used its free invoices and isn't subscribed. */
+  /**
+   * Enforces the plan's invoice allowance. Free: 5 invoices lifetime.
+   * Starter: 50 per calendar month. Business/Enterprise: unlimited.
+   * Throws 402 with everything the upgrade modal needs to render.
+   */
   private async assertCanCreateInvoice(tx: Prisma.TransactionClient, orgId: string) {
     const org = await tx.organisation.findUnique({
       where: { id: orgId },
-      select: { subscribedUntil: true },
+      select: { plan: true, subscribedUntil: true },
     });
-    const subscribed =
-      org?.subscribedUntil != null && org.subscribedUntil > new Date();
-    if (subscribed) return;
+    const plan = effectivePlan(org?.plan, org?.subscribedUntil);
+    if (plan.invoiceLimit == null) return; // unlimited
 
-    // Quotations don't count — only real invoices consume the free allowance.
+    // Quotations don't count — only real invoices consume the allowance.
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
     const used = await tx.invoice.count({
-      where: { organisationId: orgId, docType: 'invoice' },
+      where: {
+        organisationId: orgId,
+        docType: 'invoice',
+        ...(plan.limitPeriod === 'month' ? { createdAt: { gte: monthStart } } : {}),
+      },
     });
-    const limit = this.freeLimit();
-    if (used >= limit) {
-      const instructions = this.config.get<string>(
-        'SUBSCRIPTION_INSTRUCTIONS',
-        'You have used all your free invoices. Please subscribe to continue.',
-      );
-      throw new HttpException(
-        {
-          statusCode: 402,
-          error: 'Payment Required',
-          message: `Free limit reached (${used}/${limit} invoices used). Subscribe to send more.`,
-          freeLimit: limit,
-          used,
-          subscriptionInstructions: instructions,
-        },
-        402,
-      );
-    }
+    if (used < plan.invoiceLimit) return;
+
+    const instructions = this.config.get<string>(
+      'SUBSCRIPTION_INSTRUCTIONS',
+      'Pay for your plan by Mobile Money or bank transfer, then your account is activated.',
+    );
+    const period = plan.limitPeriod === 'month' ? 'this month' : '';
+    throw new HttpException(
+      {
+        statusCode: 402,
+        error: 'Payment Required',
+        message:
+          plan.id === 'free'
+            ? `You have used all ${plan.invoiceLimit} free invoices. Upgrade to keep sending invoices.`
+            : `You have used all ${plan.invoiceLimit} ${plan.name} invoices ${period}. Upgrade to Business for unlimited invoices.`,
+        plan: plan.id,
+        used,
+        limit: plan.invoiceLimit,
+        // Legacy field older frontend builds read.
+        freeLimit: plan.invoiceLimit,
+        recommendedPlan: plan.id === 'free' ? 'starter' : 'business',
+        plans: Object.values(PLANS).map((p) => ({
+          id: p.id,
+          name: p.name,
+          priceMonthly: p.priceMonthly,
+          invoiceLimit: p.invoiceLimit,
+          highlighted: p.highlighted,
+        })),
+        subscriptionInstructions: instructions,
+      },
+      402,
+    );
   }
 
   list(orgId: string, status?: string) {

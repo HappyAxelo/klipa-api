@@ -17,6 +17,7 @@ interface ActivateBody {
   businessName?: string;
   email?: string;
   months?: number;
+  plan?: string; // starter | business | enterprise (default starter)
 }
 
 // Platform-owner endpoint. Not behind Supabase auth — guarded by a shared
@@ -116,7 +117,10 @@ export class AdminController {
       email: body?.email,
     });
     const months = body.months && body.months > 0 ? Math.floor(body.months) : 1;
-    const result = await this.onboarding.activateSubscription(org.id, months);
+    const plan = ['starter', 'business', 'enterprise'].includes(body.plan ?? '')
+      ? body.plan!
+      : 'starter';
+    const result = await this.onboarding.activateSubscription(org.id, months, plan);
     return jsonSafe({ business: org.name, ...result });
   }
 }

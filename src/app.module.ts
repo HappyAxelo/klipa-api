@@ -12,6 +12,7 @@ import { CustomersModule } from './modules/customers/customers.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
 import { StaffModule } from './modules/staff/staff.module';
+import { BillingModule } from './modules/billing/billing.module';
 import { AssistantModule } from './modules/assistant/assistant.module';
 import { PublicInvoiceModule } from './modules/public-invoice/public-invoice.module';
 import { RemindersModule } from './modules/reminders/reminders.module';
@@ -31,6 +32,7 @@ import { HealthModule } from './modules/health/health.module';
     InvoicesModule,
     ExpensesModule,
     StaffModule,
+    BillingModule,
     AssistantModule,
     PublicInvoiceModule,
     RemindersModule,
