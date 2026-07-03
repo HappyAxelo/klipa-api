@@ -31,6 +31,7 @@ model Organisation {
   invoices    Invoice[]
   expenses    Expense[]
   invitations Invitation[]
+  assistantMessages AssistantMessage[]
 
   @@map("organisation")
 }
@@ -176,6 +177,22 @@ model Invitation {
 
   @@index([email])
   @@map("invitation")
+}
+
+// Klipwa AI chat memory: what each user asked and what the assistant said,
+// so conversations continue across sessions and follow-up questions work.
+model AssistantMessage {
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String       @map("organisation_id") @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  role           String // user | assistant
+  content        String
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@index([organisationId, userId, createdAt(sort: Desc)])
+  @@map("assistant_message")
 }
 
 // Business expenses — what the owner spends, for a real profit & loss.

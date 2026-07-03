@@ -202,19 +202,73 @@ export class AssistantService {
     return { cards, tips: tips.map(cleanText) };
   }
 
+  // ---- Conversation memory ----
+  // How many past turns the model sees. Enough for real follow-ups
+  // ("and last month?", "what should I do about him?") without bloating cost.
+  private static readonly HISTORY_TURNS = 12;
+
+  /** Recent chat for this user in this org, oldest first (for the chat UI). */
+  history(orgId: string, userId: string) {
+    return this.prisma.withTenant(orgId, async (tx) => {
+      const rows = await tx.assistantMessage.findMany({
+        where: { organisationId: orgId, userId },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+      });
+      return rows.reverse().map((m) => ({
+        role: m.role,
+        content: m.content,
+        at: m.createdAt,
+      }));
+    });
+  }
+
+  clearHistory(orgId: string, userId: string) {
+    return this.prisma.withTenant(orgId, async (tx) => {
+      const res = await tx.assistantMessage.deleteMany({
+        where: { organisationId: orgId, userId },
+      });
+      return { cleared: res.count };
+    });
+  }
+
+  // Saving is best-effort: a hiccup here must never break the answer.
+  private async remember(orgId: string, userId: string, question: string, answer: string) {
+    try {
+      await this.prisma.withTenant(orgId, (tx) =>
+        tx.assistantMessage.createMany({
+          data: [
+            { organisationId: orgId, userId, role: 'user', content: question.slice(0, 2000) },
+            { organisationId: orgId, userId, role: 'assistant', content: answer.slice(0, 4000) },
+          ],
+        }),
+      );
+    } catch (e) {
+      this.logger.warn(`Could not save chat memory: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
   // ---- Conversational answer ----
-  async ask(orgId: string, question: string): Promise<{ answer: string; source: 'ai' | 'rule' }> {
+  async ask(
+    orgId: string,
+    userId: string,
+    question: string,
+  ): Promise<{ answer: string; source: 'ai' | 'rule' }> {
     const c = await this.gather(orgId);
     const rule = this.ruleAnswer(question, c);
+    let result: { answer: string; source: 'ai' | 'rule' } | null = null;
     if (this.aiEnabled()) {
       try {
-        const answer = await this.claudeAnswer(question, c);
-        if (answer) return { answer: cleanText(answer), source: 'ai' };
+        const history = await this.history(orgId, userId).catch(() => []);
+        const answer = await this.claudeAnswer(question, c, history);
+        if (answer) result = { answer: cleanText(answer), source: 'ai' };
       } catch (e) {
         this.logger.warn(`AI answer failed, using rule fallback: ${e instanceof Error ? e.message : e}`);
       }
     }
-    return { answer: cleanText(rule), source: 'rule' };
+    if (!result) result = { answer: cleanText(rule), source: 'rule' };
+    await this.remember(orgId, userId, question, result.answer);
+    return result;
   }
 
   private ruleAnswer(q: string, c: Ctx): string {
@@ -250,7 +304,11 @@ export class AssistantService {
     return `This month: collected ${fmt(c.collectedThisMonth)}, outstanding ${fmt(c.outstanding)} (${c.unpaidCount} unpaid), overdue ${fmt(c.overdue)}. Ask me about profit, who owes you, late payers, expenses, where your money went, or next month's forecast.`;
   }
 
-  private async claudeAnswer(question: string, c: Ctx): Promise<string | null> {
+  private async claudeAnswer(
+    question: string,
+    c: Ctx,
+    history: { role: string; content: string }[] = [],
+  ): Promise<string | null> {
     const key = this.apiKey();
     if (!key) return null;
     const model = this.model();
@@ -283,11 +341,22 @@ export class AssistantService {
           'Your job is to help owners understand exactly what happens to their money. ' +
           'Answer ONLY from the DATA provided; every number you state must appear in the DATA, with its currency. ' +
           'Never invent, estimate, or extrapolate numbers beyond what is given. ' +
+          'Earlier conversation turns are provided for context and follow-up questions, but the DATA block in the latest message is always current and always wins over anything said earlier. ' +
           'If the DATA does not cover the question, say plainly that the answer is not in their records yet and name the one thing to record in Klipwa to get it. ' +
           'Be short and practical: 2 to 4 plain sentences a busy shop owner can act on today. ' +
           'Write in the same language the question was asked in (English, Kinyarwanda, French, or Swahili). ' +
           'Plain text only: no markdown, no bullet lists, no emojis, no em dashes.',
         messages: [
+          // Recent conversation, oldest first, so follow-ups make sense.
+          // Trim to whole turns starting on a user message.
+          ...(() => {
+            const h = history.slice(-AssistantService.HISTORY_TURNS);
+            while (h.length && h[0].role !== 'user') h.shift();
+            return h.map((m) => ({
+              role: m.role === 'assistant' ? 'assistant' : 'user',
+              content: m.content.slice(0, 600),
+            }));
+          })(),
           { role: 'user', content: `DATA:\n${context}\n\nQUESTION: ${question}` },
         ],
       }),
