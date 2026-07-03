@@ -74,9 +74,11 @@ export class AssistantService {
       if (res.ok) return { ok: true, configured: true, model };
       const body = (await res.text()).slice(0, 200);
       const hint =
-        res.status === 401 ? 'The API key is invalid. Re-copy it from console.anthropic.com and paste only the key value.'
+        /credit balance/i.test(body)
+          ? 'Your Anthropic account has no API credits. Go to console.anthropic.com > Plans & Billing and buy credits; the assistant starts working immediately after.'
+        : res.status === 401 ? 'The API key is invalid. Re-copy it from console.anthropic.com and paste only the key value.'
         : res.status === 404 ? `Model "${model}" was not found. Remove AI_MODEL or set it to a valid model id.`
-        : res.status === 429 ? 'Rate limited or out of credits. Check your Anthropic plan and billing.'
+        : res.status === 429 ? 'Rate limited. Try again in a minute or check your Anthropic plan.'
         : `Anthropic returned ${res.status}.`;
       return { ok: false, configured: true, model, status: res.status, hint: `${hint} (${body})` };
     } catch (e) {
