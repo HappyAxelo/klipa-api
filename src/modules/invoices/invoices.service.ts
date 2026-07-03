@@ -52,7 +52,10 @@ export class InvoicesService {
       org?.subscribedUntil != null && org.subscribedUntil > new Date();
     if (subscribed) return;
 
-    const used = await tx.invoice.count({ where: { organisationId: orgId } });
+    // Quotations don't count — only real invoices consume the free allowance.
+    const used = await tx.invoice.count({
+      where: { organisationId: orgId, docType: 'invoice' },
+    });
     const limit = this.freeLimit();
     if (used >= limit) {
       const instructions = this.config.get<string>(
@@ -97,6 +100,37 @@ export class InvoicesService {
     });
   }
 
+  // Turn a quotation into a real invoice: gives it an INV-… number and now
+  // counts toward the free limit (checked here). Retries on number collisions.
+  async convertToInvoice(orgId: string, id: string) {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        return await this.prisma.withTenant(orgId, async (tx) => {
+          const q = await tx.invoice.findFirst({ where: { id, organisationId: orgId } });
+          if (!q) throw new NotFoundException('Quotation not found');
+          if (q.docType !== 'quotation') {
+            throw new BadRequestException('Only quotations can be converted');
+          }
+          await this.assertCanCreateInvoice(tx, orgId);
+          const number = await this.numbers.next(tx, orgId, attempt, 'INV');
+          return tx.invoice.update({
+            where: { id },
+            data: { docType: 'invoice', number, status: 'draft' },
+            include: { customer: true, items: true },
+          });
+        });
+      } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+          lastErr = e;
+          continue;
+        }
+        throw e;
+      }
+    }
+    throw lastErr;
+  }
+
   async create(orgId: string, dto: CreateInvoiceDto) {
     const send = dto.send ?? false;
 
@@ -113,17 +147,26 @@ export class InvoicesService {
           const org = await tx.organisation.findUnique({ where: { id: orgId } });
           if (!org) throw new NotFoundException('Organisation not found');
 
-          // Enforce the free-invoice limit / subscription before creating.
-          await this.assertCanCreateInvoice(tx, orgId);
+          const isQuote = dto.docType === 'quotation';
+          // Only real invoices consume the free allowance; quotations are free.
+          if (!isQuote) await this.assertCanCreateInvoice(tx, orgId);
 
           const customer = await this.customers.findOrCreate(tx, orgId, dto.customer);
-          const number = await this.numbers.next(tx, orgId, attempt);
+          const number = await this.numbers.next(
+            tx, orgId, attempt, isQuote ? 'QUO' : 'INV',
+          );
 
-          // Compute total server-side from items — never trust client-supplied total.
-          const amountTotal = dto.items.reduce(
+          // Compute totals server-side — never trust a client total.
+          // subtotal -> minus flat discount -> plus tax on the discounted amount.
+          const subtotal = dto.items.reduce(
             (sum, item) => sum + BigInt(item.unitAmount) * BigInt(item.quantity),
             0n,
           );
+          const discount = BigInt(dto.discount ?? 0);
+          const afterDiscount = subtotal > discount ? subtotal - discount : 0n;
+          const taxBps = Math.round((dto.taxRate ?? 0) * 100); // percent -> basis points
+          const taxAmount = (afterDiscount * BigInt(taxBps)) / 10000n;
+          const amountTotal = afterDiscount + taxAmount;
 
           const invoice = await tx.invoice.create({
             data: {
@@ -134,6 +177,9 @@ export class InvoicesService {
               currency: org.currency,
               dueDate: new Date(dto.dueDate),
               status: send ? 'sent' : 'draft',
+              docType: isQuote ? 'quotation' : 'invoice',
+              taxRate: taxBps,
+              discount,
               publicToken: send ? nanoid(24) : null,
               sentAt: send ? new Date() : null,
             },
@@ -149,7 +195,8 @@ export class InvoicesService {
             })),
           });
 
-          if (send) {
+          // Quotations aren't payable, so no payment reminders.
+          if (send && !isQuote) {
             await this.scheduleReminders(tx, invoice.id, new Date(dto.dueDate));
           }
 
@@ -432,6 +479,13 @@ export class InvoicesService {
     const items =
       invoice.items ??
       (await this.prisma.invoiceItem.findMany({ where: { invoiceId: invoice.id } }));
+    const discount = BigInt(invoice.discount ?? 0);
+    const subtotal = items.reduce(
+      (s: bigint, it: any) => s + BigInt(it.unitAmount) * BigInt(it.quantity),
+      0n,
+    );
+    const taxAmount = BigInt(invoice.amountTotal) - (subtotal - discount);
+    const isQuote = invoice.docType === 'quotation';
     return this.pdf.invoicePdf({
       number: invoice.number,
       issuedDate: invoice.sentAt ?? invoice.createdAt ?? new Date(),
@@ -450,6 +504,10 @@ export class InvoicesService {
       publicLink: link,
       momoCode: pay?.momoCode ?? null,
       bankAccount: pay?.bankAccount ?? null,
+      docLabel: isQuote ? 'QUOTATION' : 'INVOICE',
+      discount: discount > 0n ? discount : undefined,
+      taxAmount: taxAmount > 0n ? taxAmount : undefined,
+      taxRatePercent: invoice.taxRate ? invoice.taxRate / 100 : undefined,
     });
   }
 

@@ -16,9 +16,10 @@ export class InvoiceNumberService {
     tx: Prisma.TransactionClient,
     orgId: string,
     offset = 0,
+    kind: 'INV' | 'QUO' = 'INV',
   ): Promise<string> {
     const year = new Date().getFullYear();
-    const prefix = `INV-${year}-`;
+    const prefix = `${kind}-${year}-`;
 
     const existing = await tx.invoice.findMany({
       where: { organisationId: orgId, number: { startsWith: prefix } },

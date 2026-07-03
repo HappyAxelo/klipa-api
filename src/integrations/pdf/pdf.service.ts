@@ -22,6 +22,10 @@ export interface InvoicePdfData {
   publicLink?: string | null;
   momoCode?: string | null;
   bankAccount?: string | null;
+  docLabel?: string; // "INVOICE" (default) or "QUOTATION"
+  discount?: bigint;
+  taxAmount?: bigint;
+  taxRatePercent?: number;
 }
 
 const BRAND = '#1565E0';
@@ -56,7 +60,7 @@ export class PdfService {
         .fillColor(INK)
         .font('Helvetica-Bold')
         .fontSize(26)
-        .text('INVOICE', 300, 50, { width: COL.right - 300, align: 'right' });
+        .text(data.docLabel || 'INVOICE', 300, 50, { width: COL.right - 300, align: 'right' });
       doc.font('Helvetica').fontSize(10).fillColor(MUTED);
       doc.text(`No. ${data.number}`, 300, 84, { width: COL.right - 300, align: 'right' });
       doc.text(`Issued: ${day(data.issuedDate)}`, 300, 98, { width: COL.right - 300, align: 'right' });
@@ -95,10 +99,31 @@ export class PdfService {
         doc.strokeColor(LINE).lineWidth(1).moveTo(COL.left, y).lineTo(COL.right, y).stroke();
       }
 
+      // ---- Subtotal / Discount / Tax breakdown (only when relevant) ----
+      const discount = data.discount ?? 0n;
+      const taxAmount = data.taxAmount ?? 0n;
+      const labW = 110;
+      const lineRow = (label: string, value: string, muted = true) => {
+        y += 16;
+        doc.font('Helvetica').fontSize(10).fillColor(muted ? MUTED : INK)
+          .text(label, COL.unit - 60, y, { width: labW, align: 'right' });
+        doc.fillColor(INK)
+          .text(value, COL.amount, y, { width: COL.right - COL.amount - 5, align: 'right' });
+      };
+      if (discount > 0n || taxAmount > 0n) {
+        const subtotal = data.items.reduce((s, it) => s + it.unitAmount * BigInt(it.quantity), 0n);
+        lineRow('Subtotal', fmt(subtotal));
+        if (discount > 0n) lineRow('Discount', `- ${fmt(discount)}`);
+        if (taxAmount > 0n) {
+          const rate = data.taxRatePercent ? ` (${data.taxRatePercent}%)` : '';
+          lineRow(`Tax${rate}`, fmt(taxAmount));
+        }
+      }
+
       // ---- Total ----
-      y += 16;
+      y += 18;
       doc.font('Helvetica-Bold').fontSize(12).fillColor(INK)
-        .text('TOTAL', COL.unit - 60, y, { width: 110, align: 'right' });
+        .text('TOTAL', COL.unit - 60, y, { width: labW, align: 'right' });
       doc.fillColor(BRAND).fontSize(14)
         .text(fmt(data.total), COL.amount, y - 1, { width: COL.right - COL.amount - 5, align: 'right' });
 

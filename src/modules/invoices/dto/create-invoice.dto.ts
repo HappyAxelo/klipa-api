@@ -5,7 +5,9 @@ import {
   IsArray,
   IsBoolean,
   IsDateString,
+  IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   Max,
@@ -66,4 +68,24 @@ export class CreateInvoiceDto {
   @IsOptional()
   @IsBoolean()
   send?: boolean;
+
+  // "quotation" produces a QUO-… document that doesn't count toward the free
+  // invoice limit and can later be converted into an invoice.
+  @IsOptional()
+  @IsIn(['invoice', 'quotation'])
+  docType?: 'invoice' | 'quotation';
+
+  // Tax percentage (e.g. 18 for 18% VAT). Applied after discount.
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  taxRate?: number;
+
+  // Flat discount amount in whole units (minor units), applied before tax.
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1000000000000)
+  discount?: number;
 }

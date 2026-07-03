@@ -61,6 +61,11 @@ export class InvoicesController {
     return jsonSafe(await this.invoices.send(orgId, id));
   }
 
+  @Post(':id/convert')
+  async convert(@CurrentOrg() orgId: string, @Param('id') id: string) {
+    return jsonSafe(await this.invoices.convertToInvoice(orgId, id));
+  }
+
   @Post(':id/mark-paid')
   async markPaid(@CurrentOrg() orgId: string, @Param('id') id: string) {
     return jsonSafe(await this.invoices.markPaid(orgId, id));

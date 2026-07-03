@@ -30,6 +30,7 @@ model Organisation {
   customers   Customer[]
   invoices    Invoice[]
   expenses    Expense[]
+  invitations Invitation[]
 
   @@map("organisation")
 }
@@ -96,6 +97,9 @@ model Invoice {
   currency       String        @db.Char(3)
   dueDate        DateTime      @map("due_date") @db.Date
   status         String        @default("draft") // draft|sent|due_soon|overdue|paid
+  docType        String        @default("invoice") @map("doc_type") // invoice | quotation
+  taxRate        Int           @default(0) @map("tax_rate") // basis points (100 = 1%)
+  discount       BigInt        @default(0) // minor units, applied before tax
   description    String?
   publicToken    String?       @unique @map("public_token")
   pdfUrl         String?       @map("pdf_url")
@@ -156,6 +160,22 @@ model Payment {
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@map("payment")
+}
+
+// Staff invitations. An owner/admin invites an email; when that person signs in
+// they can accept and get a membership in the organisation.
+model Invitation {
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String       @map("organisation_id") @db.Uuid
+  email          String
+  role           String       @default("member") // owner | admin | member
+  status         String       @default("pending") // pending | accepted | revoked
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@map("invitation")
 }
 
 // Business expenses — what the owner spends, for a real profit & loss.
