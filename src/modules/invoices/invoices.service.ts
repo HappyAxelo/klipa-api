@@ -368,8 +368,18 @@ export class InvoicesService {
         orgName: org?.name ?? '',
         momoCode: org?.momoCode ?? null,
         bankAccount: org?.bankAccount ?? null,
+        // Online checkout ("Pay Now") is live only once a payment provider is
+        // configured; paying the business directly by MoMo/bank is always free.
+        payOnline: this.payOnline(),
+        payUrl: this.payOnline()
+          ? `${this.config.get<string>('API_PUBLIC_URL', 'https://klipa-api-production.up.railway.app')}/v1/invoices/public/${token}/pay`
+          : null,
       };
     });
+  }
+
+  private payOnline(): boolean {
+    return Boolean(this.config.get<string>('FLW_SECRET_KEY'));
   }
 
   // --- helpers ---
