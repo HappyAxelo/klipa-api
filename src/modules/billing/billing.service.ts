@@ -49,6 +49,9 @@ export class BillingService {
         },
         subscribed,
         subscribedUntil: org?.subscribedUntil ?? null,
+        // Renewal lands on the same hour the subscription started.
+        autoRenew: org?.autoRenew ?? true,
+        renewsAt: subscribed && (org?.autoRenew ?? true) ? org?.subscribedUntil : null,
         usage: {
           invoicesUsed: used,
           invoicesLifetime: lifetimeInvoices,
@@ -65,6 +68,21 @@ export class BillingService {
           'SUBSCRIPTION_INSTRUCTIONS',
           'Pay for your plan by Mobile Money or bank transfer, then send proof to support and your account is activated immediately.',
         ),
+      };
+    });
+  }
+
+  /** Turn monthly renewal on/off. Off = the plan simply runs out at period end. */
+  setAutoRenew(orgId: string, autoRenew: boolean) {
+    return this.prisma.withTenant(orgId, async (tx) => {
+      const org = await tx.organisation.update({
+        where: { id: orgId },
+        data: { autoRenew },
+        select: { autoRenew: true, subscribedUntil: true },
+      });
+      return {
+        autoRenew: org.autoRenew,
+        subscribedUntil: org.subscribedUntil,
       };
     });
   }

@@ -22,8 +22,14 @@ model Organisation {
   momoCode    String? @map("momo_code")
   bankAccount String? @map("bank_account")
   // Platform subscription: null/past => still on the free tier and subject to
-  // the free-invoice limit; a future date => unlimited until then.
+  // the free-invoice limit; a future date => paid until then. Renewal lands on
+  // the same hour the subscription started (anniversary billing).
   subscribedUntil DateTime? @map("subscribed_until")
+  // Renews each month unless the owner turns it off. Until a payment provider
+  // can charge automatically, "renewal" = a payment-request email on the
+  // anniversary; access pauses if it goes unpaid.
+  autoRenew           Boolean   @default(true) @map("auto_renew")
+  lastRenewalNoticeAt DateTime? @map("last_renewal_notice_at")
   createdAt DateTime @default(now()) @map("created_at")
 
   memberships Membership[]
