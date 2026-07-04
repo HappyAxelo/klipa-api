@@ -62,6 +62,7 @@ export class AdminController {
       paidAgg,
       invoicedAgg,
       recentOrgs,
+      expiring,
     ] = await Promise.all([
       this.prisma.userProfile.count(),
       this.prisma.organisation.count(),
@@ -84,6 +85,29 @@ export class AdminController {
           subscribedUntil: true,
           createdAt: true,
           _count: { select: { invoices: true, memberships: true } },
+        },
+      }),
+      // Renewals to chase: paid plans ending in the next 7 days (or lapsed
+      // within the last 3), with the owner's email to reach them.
+      this.prisma.organisation.findMany({
+        where: {
+          subscribedUntil: {
+            gt: new Date(now.getTime() - 3 * 24 * 3600 * 1000),
+            lt: new Date(now.getTime() + 7 * 24 * 3600 * 1000),
+          },
+        },
+        orderBy: { subscribedUntil: 'asc' },
+        select: {
+          id: true,
+          name: true,
+          plan: true,
+          autoRenew: true,
+          subscribedUntil: true,
+          memberships: {
+            where: { role: 'owner' },
+            take: 1,
+            select: { user: { select: { email: true } } },
+          },
         },
       }),
     ]);
@@ -109,6 +133,15 @@ export class AdminController {
         invoices: o._count.invoices,
         members: o._count.memberships,
         createdAt: o.createdAt,
+      })),
+      expiringSoon: expiring.map((o) => ({
+        id: o.id,
+        name: o.name,
+        plan: o.plan,
+        autoRenew: o.autoRenew,
+        subscribedUntil: o.subscribedUntil,
+        expired: o.subscribedUntil != null && o.subscribedUntil <= now,
+        ownerEmail: o.memberships[0]?.user.email ?? null,
       })),
     });
   }
