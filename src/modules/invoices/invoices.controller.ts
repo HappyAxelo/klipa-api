@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -59,6 +60,12 @@ export class InvoicesController {
   @Post(':id/send')
   async send(@CurrentOrg() orgId: string, @Param('id') id: string) {
     return jsonSafe(await this.invoices.send(orgId, id));
+  }
+
+  // Drafts and quotations only; sent invoices are permanent.
+  @Delete(':id')
+  async remove(@CurrentOrg() orgId: string, @Param('id') id: string) {
+    return jsonSafe(await this.invoices.remove(orgId, id));
   }
 
   @Post(':id/convert')

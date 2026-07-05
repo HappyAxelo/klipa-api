@@ -120,6 +120,26 @@ export class InvoicesService {
     });
   }
 
+  // Delete a mistake before it reaches anyone: drafts and quotations only.
+  // A sent invoice is immutable — the customer may already hold its link/PDF.
+  async remove(orgId: string, id: string) {
+    return this.prisma.withTenant(orgId, async (tx) => {
+      const inv = await tx.invoice.findFirst({
+        where: { id, organisationId: orgId },
+        select: { status: true, docType: true },
+      });
+      if (!inv) throw new NotFoundException('Invoice not found');
+      const deletable = inv.status === 'draft' || inv.docType === 'quotation';
+      if (!deletable) {
+        throw new BadRequestException(
+          'Only drafts and quotations can be deleted. Sent invoices are permanent records.',
+        );
+      }
+      await tx.invoice.delete({ where: { id } });
+      return { deleted: true };
+    });
+  }
+
   // Turn a quotation into a real invoice: gives it an INV-… number and now
   // counts toward the free limit (checked here). Retries on number collisions.
   async convertToInvoice(orgId: string, id: string) {

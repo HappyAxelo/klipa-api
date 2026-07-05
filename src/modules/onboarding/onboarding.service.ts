@@ -107,8 +107,9 @@ export class OnboardingService {
     return this.prisma.withTenant(orgId, async (tx) => {
       const org = await tx.organisation.findUnique({ where: { id: orgId } });
       const profile = await tx.userProfile.findUnique({ where: { id: userId } });
+      // Only real invoices consume the allowance; quotations never count.
       const invoicesUsed = await tx.invoice.count({
-        where: { organisationId: orgId },
+        where: { organisationId: orgId, docType: 'invoice' },
       });
 
       const freeLimit = this.freeLimit();
