@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/database/prisma.service';
 import { EmailService } from '../../integrations/email/email.service';
+import { PushService } from '../push/push.service';
 import { formatMoney } from '../../common/money/money';
 import { escapeHtml } from '../../common/security/security.util';
 
@@ -19,6 +20,7 @@ export class RemindersService {
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
     private readonly config: ConfigService,
+    private readonly push: PushService,
   ) {}
 
   // Keep invoice status accurate without anyone touching it: unpaid invoices
@@ -26,9 +28,22 @@ export class RemindersService {
   // are never changed. Runs before the reminder pass each hour.
   @Cron(CronExpression.EVERY_HOUR)
   async syncStatuses(): Promise<void> {
+    // Capture which invoices are ABOUT to flip so their owners get one push.
+    const flipping = await this.prisma.$queryRaw<
+      { id: string; organisation_id: string; number: string; amount_total: bigint; currency: string; name: string }[]
+    >`select i.id, i.organisation_id, i.number, i.amount_total, i.currency, c.name
+       from invoice i join customer c on c.id = i.customer_id
+       where i.status in ('sent', 'due_soon') and i.due_date < current_date limit 100`;
     await this.prisma.$executeRaw`
       update invoice set status = 'overdue'
       where status in ('sent', 'due_soon') and due_date < current_date`;
+    for (const inv of flipping) {
+      void this.push.sendToOrg(
+        inv.organisation_id,
+        `Invoice ${inv.number} is now overdue`,
+        `${inv.name} has not paid ${formatMoney(BigInt(inv.amount_total), inv.currency)}. A reminder is being sent.`,
+      );
+    }
     await this.prisma.$executeRaw`
       update invoice set status = 'due_soon'
       where status = 'sent'

@@ -41,6 +41,7 @@ model Organisation {
   expenses    Expense[]
   invitations Invitation[]
   assistantMessages AssistantMessage[]
+  pushSubscriptions PushSubscription[]
 
   @@map("organisation")
 }
@@ -187,6 +188,23 @@ model Invitation {
 
   @@index([email])
   @@map("invitation")
+}
+
+// Web-push subscriptions: the browsers/phones of a business that asked to
+// be notified (invoice viewed, payment recorded, invoice overdue).
+model PushSubscription {
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String       @map("organisation_id") @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  endpoint       String       @unique
+  p256dh         String
+  auth           String
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@index([organisationId])
+  @@map("push_subscription")
 }
 
 // First-party usage events (screen views, key actions). Powers the admin

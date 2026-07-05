@@ -17,6 +17,7 @@ import { formatMoney } from '../../common/money/money';
 import { escapeHtml } from '../../common/security/security.util';
 import { PdfService } from '../../integrations/pdf/pdf.service';
 import { effectivePlan, PLANS } from '../billing/plans';
+import { PushService } from '../push/push.service';
 
 const REMINDER_STAGES: { stage: string; offsetDays: number }[] = [
   { stage: 'before_due', offsetDays: -3 },
@@ -36,7 +37,12 @@ export class InvoicesService {
     private readonly email: EmailService,
     private readonly config: ConfigService,
     private readonly pdf: PdfService,
+    private readonly push: PushService,
   ) {}
+
+  // "Invoice viewed" pushes are throttled per invoice so a customer refreshing
+  // the page doesn't spam the owner's phone.
+  private lastViewPush = new Map<string, number>();
 
   /**
    * Enforces the plan's invoice allowance. Free: 5 invoices lifetime.
@@ -354,11 +360,17 @@ export class InvoicesService {
           data: { status: 'skipped' },
         });
       }
-      return tx.invoice.update({
+      const updated = await tx.invoice.update({
         where: { id },
         data: fullyPaid ? { status: 'paid', paidAt: new Date() } : {},
         include: { payments: true, customer: true },
       });
+      void this.push.sendToOrg(
+        orgId,
+        fullyPaid ? `Invoice ${invoice.number} fully paid` : `Payment recorded on ${invoice.number}`,
+        `${formatMoney(BigInt(amount), invoice.currency)} received from ${updated.customer?.name ?? 'customer'}.`,
+      );
+      return updated;
     });
   }
 
@@ -379,6 +391,18 @@ export class InvoicesService {
       });
       if (!invoice) throw new NotFoundException('Invoice not found');
       const org = await tx.organisation.findUnique({ where: { id: orgId } });
+
+      // Tell the business their customer opened the invoice (max 1/30min).
+      const lastPush = this.lastViewPush.get(invoice.id) ?? 0;
+      if (Date.now() - lastPush > 30 * 60 * 1000) {
+        this.lastViewPush.set(invoice.id, Date.now());
+        void this.push.sendToOrg(
+          orgId,
+          `${invoice.docType === 'quotation' ? 'Quotation' : 'Invoice'} ${invoice.number} was viewed`,
+          `${invoice.customer.name} just opened it (${formatMoney(invoice.amountTotal, invoice.currency)}).`,
+        );
+      }
+
       return {
         ...invoice,
         amountTotal: invoice.amountTotal.toString(),
