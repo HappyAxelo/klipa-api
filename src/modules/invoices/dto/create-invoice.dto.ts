@@ -72,6 +72,11 @@ export class CreateInvoiceDto {
   @Matches(/^[A-Za-z]{3}$/, { message: 'currency must be a 3-letter ISO code' })
   currency?: string;
 
+  // Which saved payout details appear on this invoice.
+  @IsOptional()
+  @IsIn(['momo', 'bank', 'both'])
+  payMethods?: 'momo' | 'bank' | 'both';
+
   @IsOptional()
   @IsBoolean()
   send?: boolean;

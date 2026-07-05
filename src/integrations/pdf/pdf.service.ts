@@ -26,6 +26,26 @@ export interface InvoicePdfData {
   discount?: bigint;
   taxAmount?: bigint;
   taxRatePercent?: number;
+  logoUrl?: string | null;
+  signatureUrl?: string | null;
+  stampUrl?: string | null;
+  issuedBy?: string | null;
+}
+
+// Downloads an image for embedding. pdfkit takes PNG/JPEG only; anything
+// else (webp, failures, slow hosts) is skipped so the PDF always renders.
+async function fetchImage(url?: string | null): Promise<Buffer | null> {
+  if (!url || !url.startsWith('https://')) return null;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return null;
+    const type = res.headers.get('content-type') ?? '';
+    if (!/png|jpe?g/i.test(type)) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    return buf.length > 0 && buf.length < 5 * 1024 * 1024 ? buf : null;
+  } catch {
+    return null;
+  }
 }
 
 const BRAND = '#1565E0';
@@ -39,7 +59,13 @@ const COL = { left: 50, right: 545, desc: 60, qty: 330, unit: 385, amount: 460 }
 @Injectable()
 export class PdfService {
   /** Renders a clean, branded invoice PDF and resolves the file as a Buffer. */
-  invoicePdf(data: InvoicePdfData): Promise<Buffer> {
+  async invoicePdf(data: InvoicePdfData): Promise<Buffer> {
+    // Fetch branding up front; failures simply omit the image.
+    const [logoImg, signatureImg, stampImg] = await Promise.all([
+      fetchImage(data.logoUrl),
+      fetchImage(data.signatureUrl),
+      fetchImage(data.stampUrl),
+    ]);
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ size: 'A4', margin: 50 });
       const chunks: Buffer[] = [];
@@ -61,11 +87,17 @@ export class PdfService {
         .font('Helvetica-Bold')
         .fontSize(26)
         .text(data.docLabel || 'INVOICE', 300, 50, { width: COL.right - 300, align: 'right' });
+      if (logoImg) {
+        try { doc.image(logoImg, COL.left, 88, { fit: [110, 44] }); } catch { /* bad image */ }
+      }
       doc.font('Helvetica').fontSize(10).fillColor(MUTED);
       doc.text(`No. ${data.number}`, 300, 84, { width: COL.right - 300, align: 'right' });
       doc.text(`Issued: ${day(data.issuedDate)}`, 300, 98, { width: COL.right - 300, align: 'right' });
       doc.text(`Due: ${day(data.dueDate)}`, 300, 112, { width: COL.right - 300, align: 'right' });
       doc.text(`Status: ${data.status.toUpperCase()}`, 300, 126, { width: COL.right - 300, align: 'right' });
+      if (data.issuedBy) {
+        doc.text(`Issued by: ${data.issuedBy}`, 300, 140, { width: COL.right - 300, align: 'right' });
+      }
 
       // ---- Bill to ----
       let y = 150;
@@ -153,6 +185,22 @@ export class PdfService {
           link: data.publicLink,
           underline: true,
         });
+      }
+
+      // ---- Signature and stamp ----
+      if (signatureImg || stampImg) {
+        const sigY = Math.min(Math.max(y + 40, 640), 700);
+        if (stampImg) {
+          try { doc.image(stampImg, COL.left, sigY, { fit: [90, 90] }); } catch { /* bad image */ }
+        }
+        if (signatureImg) {
+          const sx = COL.right - 170;
+          try { doc.image(signatureImg, sx, sigY, { fit: [150, 55] }); } catch { /* bad image */ }
+          doc.strokeColor(LINE).lineWidth(1).moveTo(sx, sigY + 62).lineTo(sx + 150, sigY + 62).stroke();
+          doc.fontSize(9).fillColor(MUTED).font('Helvetica')
+            .text(data.issuedBy ? `${data.issuedBy} - Authorised signature` : 'Authorised signature',
+              sx - 30, sigY + 67, { width: 210, align: 'center' });
+        }
       }
 
       // ---- Footer ----

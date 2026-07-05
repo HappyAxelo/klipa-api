@@ -198,6 +198,7 @@ export class InvoicesService {
               dueDate: new Date(dto.dueDate),
               status: send ? 'sent' : 'draft',
               docType: isQuote ? 'quotation' : 'invoice',
+              payMethods: dto.payMethods ?? 'both',
               taxRate: taxBps,
               discount,
               publicToken: send ? nanoid(24) : null,
@@ -366,8 +367,8 @@ export class InvoicesService {
           unitAmount: item.unitAmount.toString(),
         })),
         orgName: org?.name ?? '',
-        momoCode: org?.momoCode ?? null,
-        bankAccount: org?.bankAccount ?? null,
+        issuedBy: await this.ownerName(orgId),
+        ...this.gatePay(org, invoice.payMethods),
         // Online checkout ("Pay Now") is live only once a payment provider is
         // configured; paying the business directly by MoMo/bank is always free.
         payOnline: this.payOnline(),
@@ -442,17 +443,26 @@ export class InvoicesService {
     // Best-effort: the invoice is already saved. A misconfigured or failing
     // email provider must never turn a successful invoice into a 500 — log it
     // and move on so the user keeps their record and can resend later.
-    // How the customer pays this business directly (MoMo / bank on the invoice).
-    const pay = await this.prisma.organisation.findUnique({
+    // How the customer pays this business, respecting the method chosen for
+    // THIS invoice (momo | bank | both), plus branding for the PDF.
+    const org = await this.prisma.organisation.findUnique({
       where: { id: invoice.organisationId },
-      select: { momoCode: true, bankAccount: true },
+      select: { momoCode: true, bankAccount: true, logoUrl: true, signatureUrl: true, stampUrl: true },
     });
+    const pay = this.gatePay(org, invoice.payMethods);
+    const issuedBy = await this.ownerName(invoice.organisationId);
     try {
       // Attach the PDF invoice. PDF failure must not block the email, so it's
       // generated defensively and simply omitted if it throws.
       let attachments;
       try {
-        const pdf = await this.buildInvoicePdf(businessName, invoice, link, pay);
+        const pdf = await this.buildInvoicePdf(businessName, invoice, link, {
+          ...pay,
+          logoUrl: org?.logoUrl,
+          signatureUrl: org?.signatureUrl,
+          stampUrl: org?.stampUrl,
+          issuedBy,
+        });
         attachments = [{ filename: `invoice-${invoice.number}.pdf`, content: pdf }];
       } catch (pdfErr) {
         this.logger.warn(
@@ -500,11 +510,36 @@ export class InvoicesService {
 
   // Builds the PDF for an invoice object that already has `customer`; line items
   // are loaded here if not already included (the send-path object omits them).
+  // Which of the saved payout methods this invoice shows.
+  private gatePay(
+    org: { momoCode?: string | null; bankAccount?: string | null } | null,
+    payMethods?: string | null,
+  ) {
+    const m = payMethods ?? 'both';
+    return {
+      momoCode: m !== 'bank' ? org?.momoCode ?? null : null,
+      bankAccount: m !== 'momo' ? org?.bankAccount ?? null : null,
+    };
+  }
+
+  // The business owner's name, shown as "Issued by" on the invoice.
+  private async ownerName(orgId: string): Promise<string | null> {
+    const owner = await this.prisma.membership.findFirst({
+      where: { organisationId: orgId, role: 'owner' },
+      include: { user: { select: { fullName: true } } },
+    });
+    return owner?.user.fullName ?? null;
+  }
+
   private async buildInvoicePdf(
     businessName: string,
     invoice: any,
     link: string | null,
-    pay: { momoCode?: string | null; bankAccount?: string | null } | null = null,
+    pay: {
+      momoCode?: string | null; bankAccount?: string | null;
+      logoUrl?: string | null; signatureUrl?: string | null; stampUrl?: string | null;
+      issuedBy?: string | null;
+    } | null = null,
   ): Promise<Buffer> {
     const items =
       invoice.items ??
@@ -534,6 +569,10 @@ export class InvoicesService {
       publicLink: link,
       momoCode: pay?.momoCode ?? null,
       bankAccount: pay?.bankAccount ?? null,
+      logoUrl: pay?.logoUrl ?? null,
+      signatureUrl: pay?.signatureUrl ?? null,
+      stampUrl: pay?.stampUrl ?? null,
+      issuedBy: pay?.issuedBy ?? null,
       docLabel: isQuote ? 'QUOTATION' : 'INVOICE',
       discount: discount > 0n ? discount : undefined,
       taxAmount: taxAmount > 0n ? taxAmount : undefined,
@@ -560,7 +599,13 @@ export class InvoicesService {
         org?.name ?? '',
         invoice,
         this.publicLink(token),
-        org,
+        {
+          ...this.gatePay(org, invoice.payMethods),
+          logoUrl: org?.logoUrl,
+          signatureUrl: org?.signatureUrl,
+          stampUrl: org?.stampUrl,
+          issuedBy: await this.ownerName(orgId),
+        },
       );
       return { buffer, number: invoice.number };
     });

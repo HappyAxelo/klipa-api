@@ -121,6 +121,8 @@ export class OnboardingService {
         currency: org?.currency ?? 'RWF',
         owner: profile?.fullName ?? '',
         logoUrl: org?.logoUrl ?? null,
+        signatureUrl: org?.signatureUrl ?? null,
+        stampUrl: org?.stampUrl ?? null,
         momoCode: org?.momoCode ?? null,
         bankAccount: org?.bankAccount ?? null,
         // Subscription / usage so the app can show "x of 5 free used" + paywall.
@@ -146,6 +148,8 @@ export class OnboardingService {
           ...(dto.category !== undefined ? { category: dto.category } : {}),
           ...(dto.currency !== undefined ? { currency: dto.currency.toUpperCase() } : {}),
           ...(dto.logoUrl !== undefined ? { logoUrl: dto.logoUrl } : {}),
+          ...(dto.signatureUrl !== undefined ? { signatureUrl: dto.signatureUrl } : {}),
+          ...(dto.stampUrl !== undefined ? { stampUrl: dto.stampUrl } : {}),
         },
       });
       if (dto.fullName !== undefined) {
@@ -159,6 +163,8 @@ export class OnboardingService {
         category: org.category,
         currency: org.currency,
         logoUrl: org.logoUrl,
+        signatureUrl: org.signatureUrl,
+        stampUrl: org.stampUrl,
       };
     });
   }

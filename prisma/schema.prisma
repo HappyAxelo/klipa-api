@@ -17,6 +17,9 @@ model Organisation {
   category  String?
   currency  String   @default("RWF") @db.Char(3)
   logoUrl   String?  @map("logo_url")
+  // Branding shown on invoices: authorised signature and company stamp.
+  signatureUrl String? @map("signature_url")
+  stampUrl     String? @map("stamp_url")
   plan      String   @default("starter") // starter | growth | business
   // Where this business gets paid by ITS customers (shown on the invoice).
   momoCode    String? @map("momo_code")
@@ -105,6 +108,7 @@ model Invoice {
   dueDate        DateTime      @map("due_date") @db.Date
   status         String        @default("draft") // draft|sent|due_soon|overdue|paid
   docType        String        @default("invoice") @map("doc_type") // invoice | quotation
+  payMethods     String        @default("both") @map("pay_methods") // momo | bank | both
   taxRate        Int           @default(0) @map("tax_rate") // basis points (100 = 1%)
   discount       BigInt        @default(0) // minor units, applied before tax
   description    String?

@@ -22,6 +22,18 @@ export class UpdateBusinessDto {
   @Matches(/^https:\/\//, { message: 'logoUrl must be an https URL' })
   logoUrl?: string;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Matches(/^https:\/\//, { message: 'signatureUrl must be an https URL' })
+  signatureUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Matches(/^https:\/\//, { message: 'stampUrl must be an https URL' })
+  stampUrl?: string;
+
   // Owner's name (stored on the user profile).
   @IsOptional()
   @IsString()
