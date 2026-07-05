@@ -194,7 +194,7 @@ export class InvoicesService {
               customerId: customer.id,
               number,
               amountTotal,
-              currency: org.currency,
+              currency: (dto.currency ?? org.currency).toUpperCase(),
               dueDate: new Date(dto.dueDate),
               status: send ? 'sent' : 'draft',
               docType: isQuote ? 'quotation' : 'invoice',

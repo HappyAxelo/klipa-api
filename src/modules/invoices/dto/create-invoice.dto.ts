@@ -10,6 +10,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -64,6 +65,12 @@ export class CreateInvoiceDto {
 
   @IsDateString()
   dueDate: string;
+
+  // Bill in any currency; defaults to the business's own currency.
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Za-z]{3}$/, { message: 'currency must be a 3-letter ISO code' })
+  currency?: string;
 
   @IsOptional()
   @IsBoolean()
