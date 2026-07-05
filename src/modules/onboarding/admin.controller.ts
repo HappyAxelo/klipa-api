@@ -4,8 +4,10 @@ import {
   Get,
   Headers,
   Post,
+  Query,
   UnauthorizedException,
 } from '@nestjs/common';
+import { AnalyticsService } from './analytics.service';
 import { ConfigService } from '@nestjs/config';
 import { OnboardingService } from './onboarding.service';
 import { PrismaService } from '../../common/database/prisma.service';
@@ -31,6 +33,7 @@ export class AdminController {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly assistant: AssistantService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   // Owner diagnostic: is the Klipwa AI key working? Never returns the key.
@@ -38,6 +41,17 @@ export class AdminController {
   async aiCheck(@Headers('x-admin-token') token: string) {
     this.assertAdmin(token);
     return this.assistant.aiCheck();
+  }
+
+  // Platform analytics: usage, funnel, revenue, devices, live activity.
+  @Get('analytics')
+  async analyticsOverview(
+    @Headers('x-admin-token') token: string,
+    @Query('days') days?: string,
+  ) {
+    this.assertAdmin(token);
+    const d = Math.min(90, Math.max(7, parseInt(days ?? '30', 10) || 30));
+    return jsonSafe(await this.analytics.overview(d));
   }
 
   private assertAdmin(token: string) {

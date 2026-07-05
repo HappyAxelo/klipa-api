@@ -14,6 +14,7 @@ import { ExpensesModule } from './modules/expenses/expenses.module';
 import { StaffModule } from './modules/staff/staff.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { PaymentsModule } from './modules/payments/payments.module';
+import { EventsModule } from './modules/events/events.module';
 import { AssistantModule } from './modules/assistant/assistant.module';
 import { PublicInvoiceModule } from './modules/public-invoice/public-invoice.module';
 import { RemindersModule } from './modules/reminders/reminders.module';
@@ -35,6 +36,7 @@ import { HealthModule } from './modules/health/health.module';
     StaffModule,
     BillingModule,
     PaymentsModule,
+    EventsModule,
     AssistantModule,
     PublicInvoiceModule,
     RemindersModule,

@@ -185,6 +185,23 @@ model Invitation {
   @@map("invitation")
 }
 
+// First-party usage events (screen views, key actions). Powers the admin
+// analytics. No third-party SDK; only what the app itself reports.
+model AppEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String?  @map("user_id") @db.Uuid
+  organisationId String?  @map("organisation_id") @db.Uuid
+  event          String
+  path           String?
+  device         String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt(sort: Desc)])
+  @@index([event, createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("app_event")
+}
+
 // Klipwa AI chat memory: what each user asked and what the assistant said,
 // so conversations continue across sessions and follow-up questions work.
 model AssistantMessage {
