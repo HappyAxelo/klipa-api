@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import PDFDocument from 'pdfkit';
 import { formatMoney } from '../../common/money/money';
+import { parseBankLine } from '../../common/format/bank';
 
 export interface InvoicePdfItem {
   description: string;
@@ -170,8 +171,11 @@ export class PdfService {
           doc.text(`Mobile Money:  ${data.momoCode}`, COL.left, y);
           y += 15;
         }
-        if (data.bankAccount) {
-          doc.text(`Bank:  ${data.bankAccount}`, COL.left, y);
+        // Bank details are stored as "Bank | Account | Beneficiary | SWIFT: X".
+        // Render each part on its own labelled line.
+        for (const { label, value } of parseBankLine(data.bankAccount)) {
+          doc.fillColor(MUTED).text(`${label}:`, COL.left, y, { continued: true });
+          doc.fillColor(INK).text(`  ${value}`);
           y += 15;
         }
       }

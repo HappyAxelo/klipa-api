@@ -18,6 +18,7 @@ import { escapeHtml } from '../../common/security/security.util';
 import { PdfService } from '../../integrations/pdf/pdf.service';
 import { effectivePlan, PLANS } from '../billing/plans';
 import { PushService } from '../push/push.service';
+import { parseBankLine } from '../../common/format/bank';
 
 const REMINDER_STAGES: { stage: string; offsetDays: number }[] = [
   { stage: 'before_due', offsetDays: -3 },
@@ -519,12 +520,15 @@ export class InvoicesService {
       // Escape all user-entered values before HTML interpolation.
       const eBiz = escapeHtml(businessName);
       const eCust = escapeHtml(invoice.customer.name);
+      const bankHtml = parseBankLine(pay?.bankAccount)
+        .map((b) => `<p style="margin:2px 0">${escapeHtml(b.label)}: <strong>${escapeHtml(b.value)}</strong></p>`)
+        .join('');
       const payHtml =
         pay?.momoCode || pay?.bankAccount
           ? `<div style="margin:16px 0;padding:14px 16px;background:#EEF3F9;border-radius:8px">
                <p style="margin:0 0 6px;font-weight:bold;color:#0F172A">How to pay ${eBiz}</p>
                ${pay.momoCode ? `<p style="margin:2px 0">Mobile Money: <strong>${escapeHtml(pay.momoCode)}</strong></p>` : ''}
-               ${pay.bankAccount ? `<p style="margin:2px 0">Bank: <strong>${escapeHtml(pay.bankAccount)}</strong></p>` : ''}
+               ${bankHtml}
              </div>`
           : '';
 
