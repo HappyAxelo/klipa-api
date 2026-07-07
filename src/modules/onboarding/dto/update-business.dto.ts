@@ -1,4 +1,4 @@
-import { IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
 
 export class UpdateBusinessDto {
   @IsOptional()
@@ -33,6 +33,11 @@ export class UpdateBusinessDto {
   @MaxLength(500)
   @Matches(/^https:\/\//, { message: 'stampUrl must be an https URL' })
   stampUrl?: string;
+
+  // Turn due/overdue email reminders (to customer + owner) on or off.
+  @IsOptional()
+  @IsBoolean()
+  remindersEnabled?: boolean;
 
   // Owner's name (stored on the user profile).
   @IsOptional()

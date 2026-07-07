@@ -124,6 +124,7 @@ export class OnboardingService {
         logoUrl: org?.logoUrl ?? null,
         signatureUrl: org?.signatureUrl ?? null,
         stampUrl: org?.stampUrl ?? null,
+        remindersEnabled: org?.remindersEnabled ?? true,
         momoCode: org?.momoCode ?? null,
         bankAccount: org?.bankAccount ?? null,
         // Subscription / usage so the app can show "x of 5 free used" + paywall.
@@ -151,6 +152,7 @@ export class OnboardingService {
           ...(dto.logoUrl !== undefined ? { logoUrl: dto.logoUrl } : {}),
           ...(dto.signatureUrl !== undefined ? { signatureUrl: dto.signatureUrl } : {}),
           ...(dto.stampUrl !== undefined ? { stampUrl: dto.stampUrl } : {}),
+          ...(dto.remindersEnabled !== undefined ? { remindersEnabled: dto.remindersEnabled } : {}),
         },
       });
       if (dto.fullName !== undefined) {
@@ -166,6 +168,7 @@ export class OnboardingService {
         logoUrl: org.logoUrl,
         signatureUrl: org.signatureUrl,
         stampUrl: org.stampUrl,
+        remindersEnabled: org.remindersEnabled,
       };
     });
   }

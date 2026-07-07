@@ -63,6 +63,7 @@ export class RemindersService {
     if (!due.length) return 0;
     this.logger.log(`Dispatching ${due.length} due reminder(s)`);
 
+    const ownerEmailCache = new Map<string, string | null>();
     for (const r of due) {
       try {
         const inv: any = r.invoice;
@@ -70,11 +71,23 @@ export class RemindersService {
           await this.set(r.id, 'skipped');
           continue;
         }
+        // The owner can switch reminders off for their business.
+        if (inv.organisation && inv.organisation.remindersEnabled === false) {
+          await this.set(r.id, 'skipped');
+          continue;
+        }
         if (!inv.customer?.email) {
           await this.set(r.id, 'skipped');
           continue;
         }
+        // 1) Remind the customer (the payer).
         await this.email.send(this.buildEmail(r.stage, inv));
+        // 2) Remind the business owner (the payee) at the email they signed
+        //    up with, so they know to follow up. Best-effort, never blocks.
+        const ownerEmail = await this.ownerEmail(inv.organisationId, ownerEmailCache);
+        if (ownerEmail) {
+          try { await this.email.send(this.buildOwnerEmail(r.stage, inv, ownerEmail)); } catch { /* best-effort */ }
+        }
         await this.set(r.id, 'sent', now);
       } catch (e) {
         this.logger.warn(
@@ -91,6 +104,55 @@ export class RemindersService {
       where: { id },
       data: { status, ...(sentAt ? { sentAt } : {}) },
     });
+  }
+
+  // The owner's email (the payee) for this org, cached for the run.
+  private async ownerEmail(
+    orgId: string,
+    cache: Map<string, string | null>,
+  ): Promise<string | null> {
+    if (cache.has(orgId)) return cache.get(orgId)!;
+    const owner = await this.prisma.membership.findFirst({
+      where: { organisationId: orgId, role: 'owner' },
+      include: { user: { select: { email: true } } },
+    });
+    const email = owner?.user.email ?? null;
+    cache.set(orgId, email);
+    return email;
+  }
+
+  // The copy that goes to the business owner: "your customer owes you".
+  private buildOwnerEmail(stage: string, inv: any, to: string) {
+    const business = inv.organisation?.name || 'your business';
+    const amount = formatMoney(inv.amountTotal, inv.currency);
+    const due = new Date(inv.dueDate).toISOString().slice(0, 10);
+    const overdue = stage === 'overdue_7' || stage === 'overdue_14';
+    const dueToday = stage === 'on_due';
+    const cust = escapeHtml(inv.customer?.name || 'Your customer');
+    const base = this.config.get<string>('PUBLIC_APP_URL', 'https://klipwa.app');
+    const link = inv.publicToken ? `${base}/i/${inv.publicToken}` : null;
+    const subject = overdue
+      ? `Action needed: ${inv.customer?.name || 'a customer'} is overdue on ${inv.number}`
+      : dueToday
+        ? `${inv.customer?.name || 'A customer'} owes you ${amount} today (${inv.number})`
+        : `Reminder: ${inv.number} to ${inv.customer?.name || 'a customer'} is due soon`;
+    const lead = overdue
+      ? `Invoice <strong>${inv.number}</strong> to ${cust} is overdue.`
+      : dueToday
+        ? `Invoice <strong>${inv.number}</strong> to ${cust} is due today.`
+        : `Invoice <strong>${inv.number}</strong> to ${cust} is due on ${due}.`;
+    return {
+      to,
+      subject,
+      html: `
+        <p>Hi,</p>
+        <p>${lead}</p>
+        <p>Amount: <strong>${amount}</strong> · Due: ${due}</p>
+        <p>We have reminded ${cust} by email. You may want to follow up too.</p>
+        ${link ? `<p><a href="${link}">View the invoice</a></p>` : ''}
+        <p style="color:#64748B;font-size:12px">You are getting this because reminders are on for ${escapeHtml(business)}. Turn them off in Klipwa &gt; Settings &gt; Notifications.</p>
+      `,
+    };
   }
 
   private buildEmail(stage: string, inv: any) {

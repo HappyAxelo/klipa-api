@@ -153,20 +153,47 @@ export class InvoicesService {
     let lastErr: unknown;
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        return await this.prisma.withTenant(orgId, async (tx) => {
-          const q = await tx.invoice.findFirst({ where: { id, organisationId: orgId } });
+        const result = await this.prisma.withTenant(orgId, async (tx) => {
+          const org = await tx.organisation.findUniqueOrThrow({ where: { id: orgId } });
+          const q = await tx.invoice.findFirst({
+            where: { id, organisationId: orgId },
+            include: { customer: true },
+          });
           if (!q) throw new NotFoundException('Quotation not found');
           if (q.docType !== 'quotation') {
             throw new BadRequestException('Only quotations can be converted');
           }
           await this.assertCanCreateInvoice(tx, orgId);
           const number = await this.numbers.next(tx, orgId, attempt, 'INV');
-          return tx.invoice.update({
+          // Converting a quotation IS sending it: it becomes a real invoice,
+          // gets a public link, and the customer is emailed the invoice.
+          const updated = await tx.invoice.update({
             where: { id },
-            data: { docType: 'invoice', number, status: 'draft' },
+            data: {
+              docType: 'invoice',
+              number,
+              status: 'sent',
+              sentAt: q.sentAt ?? new Date(),
+              publicToken: q.publicToken ?? nanoid(24),
+            },
             include: { customer: true, items: true },
           });
+          const hasReminders = await tx.reminder.count({ where: { invoiceId: id } });
+          if (!hasReminders) {
+            await this.scheduleReminders(tx, id, updated.dueDate);
+          }
+          return { updated, orgName: org.name };
         });
+
+        if (result.updated.customer.email) {
+          await this.sendInvoiceEmail(result.orgName, result.updated, true);
+        }
+        void this.push.sendToOrg(
+          orgId,
+          `Quotation ${result.updated.number} is now an invoice`,
+          `Sent to ${result.updated.customer.name} (${formatMoney(result.updated.amountTotal, result.updated.currency)}).`,
+        );
+        return this.decorate(result.orgName, result.updated);
       } catch (e) {
         if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
           lastErr = e;
@@ -482,7 +509,7 @@ export class InvoicesService {
     };
   }
 
-  private async sendInvoiceEmail(businessName: string, invoice: any) {
+  private async sendInvoiceEmail(businessName: string, invoice: any, converted = false) {
     const link = this.publicLink(invoice.publicToken);
     const amount = formatMoney(invoice.amountTotal, invoice.currency);
     // Best-effort: the invoice is already saved. A misconfigured or failing
@@ -532,15 +559,20 @@ export class InvoicesService {
              </div>`
           : '';
 
+      const intro = converted
+        ? `<p>Your quotation from ${eBiz} has been accepted and is now invoice
+           <strong>${escapeHtml(invoice.number)}</strong> for <strong>${amount}</strong>,
+           due ${invoice.dueDate.toISOString().slice(0, 10)}.</p>`
+        : `<p>${eBiz} has sent you invoice <strong>${escapeHtml(invoice.number)}</strong>
+           for <strong>${amount}</strong>, due ${invoice.dueDate.toISOString().slice(0, 10)}.</p>`;
       await this.email.send({
         to: invoice.customer.email,
-        subject: `Invoice ${invoice.number} from ${businessName}`,
+        subject: converted
+          ? `Invoice ${invoice.number} from ${businessName} (from your quotation)`
+          : `Invoice ${invoice.number} from ${businessName}`,
         html: `
         <p>Hi ${eCust},</p>
-        <p>${eBiz} has sent you invoice <strong>${escapeHtml(invoice.number)}</strong>
-        for <strong>${amount}</strong>, due ${invoice.dueDate
-          .toISOString()
-          .slice(0, 10)}.</p>
+        ${intro}
         ${payHtml}
         <p>Your invoice is attached as a PDF. You can also
         <a href="${link}">view it online</a>.</p>

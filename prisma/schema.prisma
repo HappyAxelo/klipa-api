@@ -33,6 +33,8 @@ model Organisation {
   // anniversary; access pauses if it goes unpaid.
   autoRenew           Boolean   @default(true) @map("auto_renew")
   lastRenewalNoticeAt DateTime? @map("last_renewal_notice_at")
+  // Email due/overdue reminders to the customer AND the owner. Owner toggle.
+  remindersEnabled    Boolean   @default(true) @map("reminders_enabled")
   createdAt DateTime @default(now()) @map("created_at")
 
   memberships Membership[]
