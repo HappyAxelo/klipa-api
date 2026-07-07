@@ -43,6 +43,39 @@ export class AdminController {
     return this.assistant.aiCheck();
   }
 
+  // Businesses that clicked "upgrade" and are waiting to be activated.
+  @Get('upgrade-requests')
+  async upgradeRequests(@Headers('x-admin-token') token: string) {
+    this.assertAdmin(token);
+    const rows = await this.prisma.upgradeRequest.findMany({
+      where: { status: 'pending' },
+      orderBy: { updatedAt: 'desc' },
+      take: 50,
+      include: {
+        organisation: {
+          select: {
+            id: true,
+            name: true,
+            memberships: {
+              where: { role: 'owner' },
+              take: 1,
+              select: { user: { select: { email: true } } },
+            },
+          },
+        },
+      },
+    });
+    return jsonSafe(
+      rows.map((r) => ({
+        organisationId: r.organisationId,
+        business: r.organisation.name,
+        plan: r.plan,
+        ownerEmail: r.organisation.memberships[0]?.user.email ?? null,
+        requestedAt: r.updatedAt,
+      })),
+    );
+  }
+
   // Platform analytics: usage, funnel, revenue, devices, live activity.
   @Get('analytics')
   async analyticsOverview(

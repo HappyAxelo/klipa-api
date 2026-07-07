@@ -5,6 +5,7 @@ import { PrismaService } from '../../common/database/prisma.service';
 import { AuthContext } from '../../common/auth/supabase.guard';
 import { CreateOnboardingDto } from './dto/create-onboarding.dto';
 import { UpdatePaymentDetailsDto } from './dto/update-payment-details.dto';
+import { effectivePlan } from '../billing/plans';
 
 @Injectable()
 export class OnboardingService {
@@ -115,9 +116,13 @@ export class OnboardingService {
       const freeLimit = this.freeLimit();
       const subscribed =
         org?.subscribedUntil != null && org.subscribedUntil > new Date();
+      const plan = effectivePlan(org?.plan, org?.subscribedUntil);
 
       return {
         name: org?.name ?? '',
+        // Which gated features this plan unlocks, so the app can lock the UI.
+        planId: plan.id,
+        capabilities: plan.capabilities,
         category: org?.category ?? '',
         currency: org?.currency ?? 'RWF',
         owner: profile?.fullName ?? '',
@@ -242,6 +247,11 @@ export class OnboardingService {
       const org = await tx.organisation.update({
         where: { id: orgId },
         data: { subscribedUntil: base, plan },
+      });
+      // Clear any pending "wants to upgrade" flag for this business.
+      await tx.upgradeRequest.updateMany({
+        where: { organisationId: orgId, status: 'pending' },
+        data: { status: 'activated' },
       });
       return {
         organisationId: orgId,

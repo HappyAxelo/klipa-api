@@ -44,6 +44,7 @@ model Organisation {
   invitations Invitation[]
   assistantMessages AssistantMessage[]
   pushSubscriptions PushSubscription[]
+  upgradeRequest    UpgradeRequest?
 
   @@map("organisation")
 }
@@ -190,6 +191,22 @@ model Invitation {
 
   @@index([email])
   @@map("invitation")
+}
+
+// A business asked to upgrade to a paid plan. Shows in the owner admin as a
+// "someone wants to pay" queue; the founder activates after confirming payment.
+model UpgradeRequest {
+  id             String   @id @default(uuid()) @db.Uuid
+  organisationId String   @unique @map("organisation_id") @db.Uuid
+  plan           String
+  status         String   @default("pending") // pending | activated
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at")
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@index([status, updatedAt(sort: Desc)])
+  @@map("upgrade_request")
 }
 
 // Web-push subscriptions: the browsers/phones of a business that asked to

@@ -16,7 +16,17 @@ export interface Plan {
   limitPeriod: 'lifetime' | 'month' | null;
   highlighted: boolean; // "MOST POPULAR" in the UI
   features: string[];
+  // Gated capabilities this plan unlocks. Enforced server-side so a paid-only
+  // feature cannot be used without an active subscription that includes it.
+  capabilities: Capability[];
 }
+
+export type Capability =
+  | 'expenses' // bookkeeping / expense tracking
+  | 'ai' // Klipwa AI insights + assistant
+  | 'staff' // team accounts / invites
+  | 'receipts' // attach receipt photos to expenses
+  | 'multibranch';
 
 export const PLANS: Record<PlanId, Plan> = {
   free: {
@@ -27,6 +37,7 @@ export const PLANS: Record<PlanId, Plan> = {
     invoiceLimit: 5,
     limitPeriod: 'lifetime',
     highlighted: false,
+    capabilities: [],
     features: [
       '5 free invoices',
       'Branded PDF invoices',
@@ -42,6 +53,7 @@ export const PLANS: Record<PlanId, Plan> = {
     invoiceLimit: 50,
     limitPeriod: 'month',
     highlighted: false,
+    capabilities: ['expenses', 'ai'],
     features: [
       'Up to 50 invoices per month',
       'Quotations',
@@ -56,10 +68,11 @@ export const PLANS: Record<PlanId, Plan> = {
     id: 'business',
     name: 'Business',
     tagline: 'SME Growth',
-    priceMonthly: 100000,
+    priceMonthly: 25000,
     invoiceLimit: null,
     limitPeriod: null,
     highlighted: true,
+    capabilities: ['expenses', 'ai', 'staff', 'receipts'],
     features: [
       'Unlimited invoices and quotations',
       'Advanced bookkeeping with receipts',
@@ -74,10 +87,11 @@ export const PLANS: Record<PlanId, Plan> = {
     id: 'enterprise',
     name: 'Enterprise',
     tagline: 'Large organisations',
-    priceMonthly: 300000,
+    priceMonthly: 30000,
     invoiceLimit: null,
     limitPeriod: null,
     highlighted: false,
+    capabilities: ['expenses', 'ai', 'staff', 'receipts', 'multibranch'],
     features: [
       'Everything in Business',
       'Multi-branch management',
@@ -98,4 +112,20 @@ export function effectivePlan(
   if (!subscribed) return PLANS.free;
   const id = (orgPlan ?? 'starter') as PlanId;
   return PLANS[id] ?? PLANS.starter;
+}
+
+/** Does the org's active plan include a given capability? */
+export function planAllows(
+  orgPlan: string | null | undefined,
+  subscribedUntil: Date | null | undefined,
+  cap: Capability,
+): boolean {
+  return effectivePlan(orgPlan, subscribedUntil).capabilities.includes(cap);
+}
+
+/** The cheapest plan that unlocks a capability (for upgrade prompts). */
+export function planForCapability(cap: Capability): Plan {
+  return (
+    Object.values(PLANS).find((p) => p.capabilities.includes(cap)) ?? PLANS.business
+  );
 }

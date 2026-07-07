@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/database/prisma.service';
+import { assertCapability } from '../../common/billing/capability.util';
 import { EmailService } from '../../integrations/email/email.service';
 import { ConfigService } from '@nestjs/config';
 import { AuthContext } from '../../common/auth/supabase.guard';
@@ -69,6 +70,8 @@ export class StaffService {
     return this.prisma.withTenant(orgId, async (tx) => {
       const org = await tx.organisation.findUnique({ where: { id: orgId } });
       if (!org) throw new NotFoundException('Organisation not found');
+      // Team accounts are a Business-plan feature.
+      assertCapability(org, 'staff');
 
       // Already a member?
       const existingMember = await tx.membership.findFirst({

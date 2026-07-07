@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/database/prisma.service';
 import { formatMoney } from '../../common/money/money';
+import { planAllows } from '../billing/plans';
 
 interface Ctx {
   currency: string;
@@ -252,12 +253,30 @@ export class AssistantService {
     }
   }
 
+  // Is the org's plan allowed to use the Klipwa AI assistant?
+  private async aiAllowed(orgId: string): Promise<boolean> {
+    const org = await this.prisma.organisation.findUnique({
+      where: { id: orgId },
+      select: { plan: true, subscribedUntil: true },
+    });
+    return planAllows(org?.plan, org?.subscribedUntil, 'ai');
+  }
+
   // ---- Conversational answer ----
   async ask(
     orgId: string,
     userId: string,
     question: string,
-  ): Promise<{ answer: string; source: 'ai' | 'rule' }> {
+  ): Promise<{ answer: string; source: 'ai' | 'rule'; locked?: boolean }> {
+    // The conversational assistant is a paid feature (Starter and up).
+    if (!(await this.aiAllowed(orgId))) {
+      return {
+        answer:
+          'Klipwa AI is available on the Starter plan and above. Upgrade in Billing to ask questions about your business and get answers from your own data.',
+        source: 'rule',
+        locked: true,
+      };
+    }
     const c = await this.gather(orgId);
     const rule = this.ruleAnswer(question, c);
     let result: { answer: string; source: 'ai' | 'rule' } | null = null;

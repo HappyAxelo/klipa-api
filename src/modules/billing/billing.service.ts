@@ -72,6 +72,20 @@ export class BillingService {
     });
   }
 
+  /** Record that a business wants to upgrade, so the owner admin shows it as
+   *  a "someone wants to pay" item to activate after payment lands. */
+  requestUpgrade(orgId: string, plan: string) {
+    const valid = ['starter', 'business', 'enterprise'].includes(plan) ? plan : 'business';
+    return this.prisma.withTenant(orgId, async (tx) => {
+      await tx.upgradeRequest.upsert({
+        where: { organisationId: orgId },
+        update: { plan: valid, status: 'pending' },
+        create: { organisationId: orgId, plan: valid, status: 'pending' },
+      });
+      return { requested: true, plan: valid };
+    });
+  }
+
   /** Turn monthly renewal on/off. Off = the plan simply runs out at period end. */
   setAutoRenew(orgId: string, autoRenew: boolean) {
     return this.prisma.withTenant(orgId, async (tx) => {
