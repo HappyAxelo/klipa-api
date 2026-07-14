@@ -576,6 +576,10 @@ export class InvoicesService {
         ${payHtml}
         <p>Your invoice is attached as a PDF. You can also
         <a href="${link}">view it online</a>.</p>
+        <p style="color:#64748B;font-size:12px;margin-top:18px;border-top:1px solid #E2E8F0;padding-top:10px">
+          Run a business too? This invoice was made with
+          <a href="https://klipwa.app/?ref=email" style="color:#1565E0">Klipwa</a> in 30 seconds.
+          Your first 5 invoices are free.</p>
       `,
         attachments,
       });

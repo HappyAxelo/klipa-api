@@ -30,6 +30,8 @@ const EVENT_NAMES = [
   'billing_viewed',
   'upgrade_clicked',
   'team_invited',
+  // Growth loop: a new business signed up from an invoice/PDF/email link.
+  'signup_from_invoice',
 ];
 
 class EventDto {

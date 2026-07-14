@@ -15,7 +15,7 @@ export class AnalyticsService {
     const now = new Date();
     const since = new Date(now.getTime() - days * 24 * 3600 * 1000);
 
-    const [series, funnel, active, screens, devices, revenue, feed, insightsBase] =
+    const [series, funnel, active, screens, devices, revenue, feed, invoiceSignups] =
       await Promise.all([
         this.dailySeries(since),
         this.funnel(),
@@ -24,7 +24,9 @@ export class AnalyticsService {
         this.deviceSplit(since),
         this.revenue(now, since),
         this.activityFeed(),
-        Promise.resolve(null),
+        this.prisma.appEvent.count({
+          where: { event: 'signup_from_invoice', createdAt: { gt: since } },
+        }),
       ]);
 
     const insights = this.insights({ series, funnel, active, devices, revenue, days });
@@ -39,6 +41,7 @@ export class AnalyticsService {
       devices,
       revenue,
       feed,
+      invoiceSignups,
       insights,
     };
   }

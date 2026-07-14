@@ -207,11 +207,18 @@ export class PdfService {
         }
       }
 
-      // ---- Footer ----
+      // ---- Footer: every document recruits its reader ----
       doc.fontSize(9).fillColor(MUTED).font('Helvetica')
-        .text('Powered by K-Lipwa', COL.left, 800, {
+        .text('Made with Klipwa in 30 seconds. Create your own free invoices at', COL.left, 794, {
           width: COL.right - COL.left,
           align: 'center',
+        });
+      doc.fillColor(BRAND)
+        .text('klipwa.app', COL.left, 806, {
+          width: COL.right - COL.left,
+          align: 'center',
+          link: 'https://klipwa.app/?ref=pdf',
+          underline: true,
         });
 
       doc.end();

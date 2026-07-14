@@ -198,7 +198,9 @@ export class RemindersService {
         <p>Amount due: <strong>${amount}</strong> · Due: ${due}</p>
         ${pay}
         ${link ? `<p><a href="${link}">View your invoice</a></p>` : ''}
-        <p style="color:#64748B;font-size:12px">Sent by ${eBiz} via K-Lipwa.</p>
+        <p style="color:#64748B;font-size:12px">Sent by ${eBiz} via
+          <a href="https://klipwa.app/?ref=email" style="color:#1565E0">Klipwa</a>
+          - free invoicing for African businesses.</p>
       `,
     };
   }
