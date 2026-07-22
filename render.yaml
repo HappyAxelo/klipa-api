@@ -1,0 +1,13 @@
+# Render.com blueprint: deploys the API from the existing Dockerfile on the
+# free plan. The free instance sleeps after ~15 min idle; an external
+# scheduler (e.g. cron-job.org) should ping GET /health every 10 minutes to
+# keep it awake and POST /v1/admin/run-jobs hourly (x-admin-token header) to
+# fire the background jobs. Set the environment variables in the Render
+# dashboard - see DEPLOY.md for the full checklist.
+services:
+  - type: web
+    name: klipa-api
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true

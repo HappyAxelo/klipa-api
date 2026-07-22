@@ -6,5 +6,6 @@ import { RenewalService } from './renewal.service';
 @Module({
   controllers: [BillingController],
   providers: [BillingService, RenewalService],
+  exports: [RenewalService],
 })
 export class BillingModule {}
